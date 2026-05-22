@@ -1,0 +1,617 @@
+***********************************
+Dataset: worldtrace
+Trajectory Length: 200
+Epochs: 1000
+batch_size: 1024
+***********************************
+Using 2 GPUs for training
+<----- Epoch 0 Training ---->
+Epoch 0 Training Loss: 6.00561
+Epoch 0 Validation Loss: 2.42865
+Validation loss decreased,
+saving model to /home/zhangshuzhan25/UniTraj/UniTraj/worldtrace_bs=1024/05-21-21-29-58/models/best_model_epoch_0.pt
+<----- Epoch 1 Training ---->
+Epoch 1 Training Loss: 1.82414
+Epoch 1 Validation Loss: 2.11098
+Validation loss decreased,
+saving model to /home/zhangshuzhan25/UniTraj/UniTraj/worldtrace_bs=1024/05-21-21-29-58/models/best_model_epoch_1.pt
+<----- Epoch 2 Training ---->
+Epoch 2 Training Loss: 2.10214
+Epoch 2 Validation Loss: 1.07258
+Validation loss decreased,
+saving model to /home/zhangshuzhan25/UniTraj/UniTraj/worldtrace_bs=1024/05-21-21-29-58/models/best_model_epoch_2.pt
+<----- Epoch 3 Training ---->
+Epoch 3 Training Loss: 0.90828
+Epoch 3 Validation Loss: 0.87314
+Validation loss decreased,
+saving model to /home/zhangshuzhan25/UniTraj/UniTraj/worldtrace_bs=1024/05-21-21-29-58/models/best_model_epoch_3.pt
+<----- Epoch 4 Training ---->
+Epoch 4 Training Loss: 0.97700
+Epoch 4 Validation Loss: 1.13825
+Validation loss did not decrease for 1 epochs
+<----- Epoch 5 Training ---->
+Epoch 5 Training Loss: 1.05630
+Epoch 5 Validation Loss: 0.68837
+Validation loss decreased,
+saving model to /home/zhangshuzhan25/UniTraj/UniTraj/worldtrace_bs=1024/05-21-21-29-58/models/best_model_epoch_5.pt
+<----- Epoch 6 Training ---->
+Epoch 6 Training Loss: 0.67142
+Epoch 6 Validation Loss: 0.63320
+Validation loss decreased,
+saving model to /home/zhangshuzhan25/UniTraj/UniTraj/worldtrace_bs=1024/05-21-21-29-58/models/best_model_epoch_6.pt
+<----- Epoch 7 Training ---->
+Epoch 7 Training Loss: 0.70119
+Epoch 7 Validation Loss: 0.75164
+Validation loss did not decrease for 1 epochs
+<----- Epoch 8 Training ---->
+Epoch 8 Training Loss: 0.77859
+Epoch 8 Validation Loss: 0.62741
+Validation loss decreased,
+saving model to /home/zhangshuzhan25/UniTraj/UniTraj/worldtrace_bs=1024/05-21-21-29-58/models/best_model_epoch_8.pt
+<----- Epoch 9 Training ---->
+Epoch 9 Training Loss: 0.61076
+Epoch 9 Validation Loss: 0.54197
+Validation loss decreased,
+saving model to /home/zhangshuzhan25/UniTraj/UniTraj/worldtrace_bs=1024/05-21-21-29-58/models/best_model_epoch_9.pt
+<----- Epoch 10 Training ---->
+Epoch 10 Training Loss: 0.55498
+Epoch 10 Validation Loss: 0.56126
+Validation loss did not decrease for 1 epochs
+<----- Epoch 11 Training ---->
+Epoch 11 Training Loss: 0.58296
+Epoch 11 Validation Loss: 0.53466
+Validation loss decreased,
+saving model to /home/zhangshuzhan25/UniTraj/UniTraj/worldtrace_bs=1024/05-21-21-29-58/models/best_model_epoch_11.pt
+<----- Epoch 12 Training ---->
+Epoch 12 Training Loss: 0.52052
+Epoch 12 Validation Loss: 0.40319
+Validation loss decreased,
+saving model to /home/zhangshuzhan25/UniTraj/UniTraj/worldtrace_bs=1024/05-21-21-29-58/models/best_model_epoch_12.pt
+<----- Epoch 13 Training ---->
+Epoch 13 Training Loss: 0.44172
+Epoch 13 Validation Loss: 0.37513
+Validation loss decreased,
+saving model to /home/zhangshuzhan25/UniTraj/UniTraj/worldtrace_bs=1024/05-21-21-29-58/models/best_model_epoch_13.pt
+<----- Epoch 14 Training ---->
+Epoch 14 Training Loss: 0.43705
+Epoch 14 Validation Loss: 0.42809
+Validation loss did not decrease for 1 epochs
+<----- Epoch 15 Training ---->
+Epoch 15 Training Loss: 0.46617
+Epoch 15 Validation Loss: 0.44096
+Validation loss did not decrease for 2 epochs
+<----- Epoch 16 Training ---->
+Epoch 16 Training Loss: 0.43569
+Epoch 16 Validation Loss: 0.37321
+Validation loss decreased,
+saving model to /home/zhangshuzhan25/UniTraj/UniTraj/worldtrace_bs=1024/05-21-21-29-58/models/best_model_epoch_16.pt
+<----- Epoch 17 Training ---->
+Epoch 17 Training Loss: 0.40751
+Epoch 17 Validation Loss: 0.37527
+Validation loss did not decrease for 1 epochs
+<----- Epoch 18 Training ---->
+Epoch 18 Training Loss: 0.38017
+Epoch 18 Validation Loss: 0.37131
+Validation loss decreased,
+saving model to /home/zhangshuzhan25/UniTraj/UniTraj/worldtrace_bs=1024/05-21-21-29-58/models/best_model_epoch_18.pt
+<----- Epoch 19 Training ---->
+Epoch 19 Training Loss: 0.39779
+Epoch 19 Validation Loss: 0.36623
+Validation loss decreased,
+saving model to /home/zhangshuzhan25/UniTraj/UniTraj/worldtrace_bs=1024/05-21-21-29-58/models/best_model_epoch_19.pt
+<----- Epoch 20 Training ---->
+Epoch 20 Training Loss: 0.38218
+Epoch 20 Validation Loss: 0.34104
+Validation loss decreased,
+saving model to /home/zhangshuzhan25/UniTraj/UniTraj/worldtrace_bs=1024/05-21-21-29-58/models/best_model_epoch_20.pt
+<----- Epoch 21 Training ---->
+Epoch 21 Training Loss: 0.34187
+Epoch 21 Validation Loss: 0.30398
+Validation loss decreased,
+saving model to /home/zhangshuzhan25/UniTraj/UniTraj/worldtrace_bs=1024/05-21-21-29-58/models/best_model_epoch_21.pt
+<----- Epoch 22 Training ---->
+Epoch 22 Training Loss: 0.32591
+Epoch 22 Validation Loss: 0.29623
+Validation loss decreased,
+saving model to /home/zhangshuzhan25/UniTraj/UniTraj/worldtrace_bs=1024/05-21-21-29-58/models/best_model_epoch_22.pt
+<----- Epoch 23 Training ---->
+Epoch 23 Training Loss: 0.31022
+Epoch 23 Validation Loss: 0.26710
+Validation loss decreased,
+saving model to /home/zhangshuzhan25/UniTraj/UniTraj/worldtrace_bs=1024/05-21-21-29-58/models/best_model_epoch_23.pt
+<----- Epoch 24 Training ---->
+Epoch 24 Training Loss: 0.28365
+Epoch 24 Validation Loss: 0.24181
+Validation loss decreased,
+saving model to /home/zhangshuzhan25/UniTraj/UniTraj/worldtrace_bs=1024/05-21-21-29-58/models/best_model_epoch_24.pt
+<----- Epoch 25 Training ---->
+Epoch 25 Training Loss: 0.25916
+Epoch 25 Validation Loss: 0.22879
+Validation loss decreased,
+saving model to /home/zhangshuzhan25/UniTraj/UniTraj/worldtrace_bs=1024/05-21-21-29-58/models/best_model_epoch_25.pt
+<----- Epoch 26 Training ---->
+Epoch 26 Training Loss: 0.23596
+Epoch 26 Validation Loss: 0.19217
+Validation loss decreased,
+saving model to /home/zhangshuzhan25/UniTraj/UniTraj/worldtrace_bs=1024/05-21-21-29-58/models/best_model_epoch_26.pt
+<----- Epoch 27 Training ---->
+Epoch 27 Training Loss: 0.20715
+Epoch 27 Validation Loss: 0.17105
+Validation loss decreased,
+saving model to /home/zhangshuzhan25/UniTraj/UniTraj/worldtrace_bs=1024/05-21-21-29-58/models/best_model_epoch_27.pt
+<----- Epoch 28 Training ---->
+Epoch 28 Training Loss: 0.18306
+Epoch 28 Validation Loss: 0.16196
+Validation loss decreased,
+saving model to /home/zhangshuzhan25/UniTraj/UniTraj/worldtrace_bs=1024/05-21-21-29-58/models/best_model_epoch_28.pt
+<----- Epoch 29 Training ---->
+Epoch 29 Training Loss: 0.16372
+Epoch 29 Validation Loss: 0.13601
+Validation loss decreased,
+saving model to /home/zhangshuzhan25/UniTraj/UniTraj/worldtrace_bs=1024/05-21-21-29-58/models/best_model_epoch_29.pt
+<----- Epoch 30 Training ---->
+Epoch 30 Training Loss: 0.14943
+Epoch 30 Validation Loss: 0.12609
+Validation loss decreased,
+saving model to /home/zhangshuzhan25/UniTraj/UniTraj/worldtrace_bs=1024/05-21-21-29-58/models/best_model_epoch_30.pt
+<----- Epoch 31 Training ---->
+Epoch 31 Training Loss: 0.12474
+Epoch 31 Validation Loss: 0.10688
+Validation loss decreased,
+saving model to /home/zhangshuzhan25/UniTraj/UniTraj/worldtrace_bs=1024/05-21-21-29-58/models/best_model_epoch_31.pt
+<----- Epoch 32 Training ---->
+Epoch 32 Training Loss: 0.10498
+Epoch 32 Validation Loss: 0.09080
+Validation loss decreased,
+saving model to /home/zhangshuzhan25/UniTraj/UniTraj/worldtrace_bs=1024/05-21-21-29-58/models/best_model_epoch_32.pt
+<----- Epoch 33 Training ---->
+Epoch 33 Training Loss: 0.10249
+Epoch 33 Validation Loss: 0.09449
+Validation loss did not decrease for 1 epochs
+<----- Epoch 34 Training ---->
+Epoch 34 Training Loss: 0.09160
+Epoch 34 Validation Loss: 0.11328
+Validation loss did not decrease for 2 epochs
+<----- Epoch 35 Training ---->
+Epoch 35 Training Loss: 0.13363
+Epoch 35 Validation Loss: 0.09529
+Validation loss did not decrease for 3 epochs
+<----- Epoch 36 Training ---->
+Epoch 36 Training Loss: 0.09252
+Epoch 36 Validation Loss: 0.06934
+Validation loss decreased,
+saving model to /home/zhangshuzhan25/UniTraj/UniTraj/worldtrace_bs=1024/05-21-21-29-58/models/best_model_epoch_36.pt
+<----- Epoch 37 Training ---->
+Epoch 37 Training Loss: 0.08727
+Epoch 37 Validation Loss: 0.06621
+Validation loss decreased,
+saving model to /home/zhangshuzhan25/UniTraj/UniTraj/worldtrace_bs=1024/05-21-21-29-58/models/best_model_epoch_37.pt
+<----- Epoch 38 Training ---->
+Epoch 38 Training Loss: 0.07251
+Epoch 38 Validation Loss: 0.06957
+Validation loss did not decrease for 1 epochs
+<----- Epoch 39 Training ---->
+Epoch 39 Training Loss: 0.06816
+Epoch 39 Validation Loss: 0.06827
+Validation loss did not decrease for 2 epochs
+<----- Epoch 40 Training ---->
+Epoch 40 Training Loss: 0.06220
+Epoch 40 Validation Loss: 0.06268
+Validation loss decreased,
+saving model to /home/zhangshuzhan25/UniTraj/UniTraj/worldtrace_bs=1024/05-21-21-29-58/models/best_model_epoch_40.pt
+<----- Epoch 41 Training ---->
+Epoch 41 Training Loss: 0.06127
+Epoch 41 Validation Loss: 0.04596
+Validation loss decreased,
+saving model to /home/zhangshuzhan25/UniTraj/UniTraj/worldtrace_bs=1024/05-21-21-29-58/models/best_model_epoch_41.pt
+<----- Epoch 42 Training ---->
+Epoch 42 Training Loss: 0.05535
+Epoch 42 Validation Loss: 0.04321
+Validation loss decreased,
+saving model to /home/zhangshuzhan25/UniTraj/UniTraj/worldtrace_bs=1024/05-21-21-29-58/models/best_model_epoch_42.pt
+<----- Epoch 43 Training ---->
+Epoch 43 Training Loss: 0.04933
+Epoch 43 Validation Loss: 0.04269
+Validation loss decreased,
+saving model to /home/zhangshuzhan25/UniTraj/UniTraj/worldtrace_bs=1024/05-21-21-29-58/models/best_model_epoch_43.pt
+<----- Epoch 44 Training ---->
+Epoch 44 Training Loss: 0.04648
+Epoch 44 Validation Loss: 0.03928
+Validation loss decreased,
+saving model to /home/zhangshuzhan25/UniTraj/UniTraj/worldtrace_bs=1024/05-21-21-29-58/models/best_model_epoch_44.pt
+<----- Epoch 45 Training ---->
+Epoch 45 Training Loss: 0.04539
+Epoch 45 Validation Loss: 0.03944
+Validation loss did not decrease for 1 epochs
+<----- Epoch 46 Training ---->
+Epoch 46 Training Loss: 0.04148
+Epoch 46 Validation Loss: 0.03420
+Validation loss decreased,
+saving model to /home/zhangshuzhan25/UniTraj/UniTraj/worldtrace_bs=1024/05-21-21-29-58/models/best_model_epoch_46.pt
+<----- Epoch 47 Training ---->
+Epoch 47 Training Loss: 0.04145
+Epoch 47 Validation Loss: 0.03440
+Validation loss did not decrease for 1 epochs
+<----- Epoch 48 Training ---->
+Epoch 48 Training Loss: 0.03945
+Epoch 48 Validation Loss: 0.03093
+Validation loss decreased,
+saving model to /home/zhangshuzhan25/UniTraj/UniTraj/worldtrace_bs=1024/05-21-21-29-58/models/best_model_epoch_48.pt
+<----- Epoch 49 Training ---->
+Epoch 49 Training Loss: 0.03459
+Epoch 49 Validation Loss: 0.03027
+Validation loss decreased,
+saving model to /home/zhangshuzhan25/UniTraj/UniTraj/worldtrace_bs=1024/05-21-21-29-58/models/best_model_epoch_49.pt
+<----- Epoch 50 Training ---->
+Epoch 50 Training Loss: 0.03284
+Epoch 50 Validation Loss: 0.02884
+Validation loss decreased,
+saving model to /home/zhangshuzhan25/UniTraj/UniTraj/worldtrace_bs=1024/05-21-21-29-58/models/best_model_epoch_50.pt
+<----- Epoch 51 Training ---->
+Epoch 51 Training Loss: 0.03206
+Epoch 51 Validation Loss: 0.02802
+Validation loss decreased,
+saving model to /home/zhangshuzhan25/UniTraj/UniTraj/worldtrace_bs=1024/05-21-21-29-58/models/best_model_epoch_51.pt
+<----- Epoch 52 Training ---->
+Epoch 52 Training Loss: 0.02879
+Epoch 52 Validation Loss: 0.02551
+Validation loss decreased,
+saving model to /home/zhangshuzhan25/UniTraj/UniTraj/worldtrace_bs=1024/05-21-21-29-58/models/best_model_epoch_52.pt
+<----- Epoch 53 Training ---->
+Epoch 53 Training Loss: 0.02882
+Epoch 53 Validation Loss: 0.02655
+Validation loss did not decrease for 1 epochs
+<----- Epoch 54 Training ---->
+Epoch 54 Training Loss: 0.02792
+Epoch 54 Validation Loss: 0.02301
+Validation loss decreased,
+saving model to /home/zhangshuzhan25/UniTraj/UniTraj/worldtrace_bs=1024/05-21-21-29-58/models/best_model_epoch_54.pt
+<----- Epoch 55 Training ---->
+Epoch 55 Training Loss: 0.02674
+Epoch 55 Validation Loss: 0.02353
+Validation loss did not decrease for 1 epochs
+<----- Epoch 56 Training ---->
+Epoch 56 Training Loss: 0.02465
+Epoch 56 Validation Loss: 0.02288
+Validation loss decreased,
+saving model to /home/zhangshuzhan25/UniTraj/UniTraj/worldtrace_bs=1024/05-21-21-29-58/models/best_model_epoch_56.pt
+<----- Epoch 57 Training ---->
+Epoch 57 Training Loss: 0.02500
+Epoch 57 Validation Loss: 0.02337
+Validation loss did not decrease for 1 epochs
+<----- Epoch 58 Training ---->
+Epoch 58 Training Loss: 0.02364
+Epoch 58 Validation Loss: 0.02033
+Validation loss decreased,
+saving model to /home/zhangshuzhan25/UniTraj/UniTraj/worldtrace_bs=1024/05-21-21-29-58/models/best_model_epoch_58.pt
+<----- Epoch 59 Training ---->
+Epoch 59 Training Loss: 0.02302
+Epoch 59 Validation Loss: 0.01947
+Validation loss decreased,
+saving model to /home/zhangshuzhan25/UniTraj/UniTraj/worldtrace_bs=1024/05-21-21-29-58/models/best_model_epoch_59.pt
+<----- Epoch 60 Training ---->
+Epoch 60 Training Loss: 0.02260
+Epoch 60 Validation Loss: 0.02011
+Validation loss did not decrease for 1 epochs
+<----- Epoch 61 Training ---->
+Epoch 61 Training Loss: 0.02178
+Epoch 61 Validation Loss: 0.01983
+Validation loss did not decrease for 2 epochs
+<----- Epoch 62 Training ---->
+Epoch 62 Training Loss: 0.02104
+Epoch 62 Validation Loss: 0.01896
+Validation loss decreased,
+saving model to /home/zhangshuzhan25/UniTraj/UniTraj/worldtrace_bs=1024/05-21-21-29-58/models/best_model_epoch_62.pt
+<----- Epoch 63 Training ---->
+Epoch 63 Training Loss: 0.02099
+Epoch 63 Validation Loss: 0.01980
+Validation loss did not decrease for 1 epochs
+<----- Epoch 64 Training ---->
+Epoch 64 Training Loss: 0.02049
+Epoch 64 Validation Loss: 0.01832
+Validation loss decreased,
+saving model to /home/zhangshuzhan25/UniTraj/UniTraj/worldtrace_bs=1024/05-21-21-29-58/models/best_model_epoch_64.pt
+<----- Epoch 65 Training ---->
+Epoch 65 Training Loss: 0.01970
+Epoch 65 Validation Loss: 0.01783
+Validation loss decreased,
+saving model to /home/zhangshuzhan25/UniTraj/UniTraj/worldtrace_bs=1024/05-21-21-29-58/models/best_model_epoch_65.pt
+<----- Epoch 66 Training ---->
+Epoch 66 Training Loss: 0.01914
+Epoch 66 Validation Loss: 0.01765
+Validation loss decreased,
+saving model to /home/zhangshuzhan25/UniTraj/UniTraj/worldtrace_bs=1024/05-21-21-29-58/models/best_model_epoch_66.pt
+<----- Epoch 67 Training ---->
+Epoch 67 Training Loss: 0.01947
+Epoch 67 Validation Loss: 0.01744
+Validation loss decreased,
+saving model to /home/zhangshuzhan25/UniTraj/UniTraj/worldtrace_bs=1024/05-21-21-29-58/models/best_model_epoch_67.pt
+<----- Epoch 68 Training ---->
+Epoch 68 Training Loss: 0.01910
+Epoch 68 Validation Loss: 0.01689
+Validation loss decreased,
+saving model to /home/zhangshuzhan25/UniTraj/UniTraj/worldtrace_bs=1024/05-21-21-29-58/models/best_model_epoch_68.pt
+<----- Epoch 69 Training ---->
+Epoch 69 Training Loss: 0.01875
+Epoch 69 Validation Loss: 0.01681
+Validation loss decreased,
+saving model to /home/zhangshuzhan25/UniTraj/UniTraj/worldtrace_bs=1024/05-21-21-29-58/models/best_model_epoch_69.pt
+<----- Epoch 70 Training ---->
+Epoch 70 Training Loss: 0.01828
+Epoch 70 Validation Loss: 0.01623
+Validation loss decreased,
+saving model to /home/zhangshuzhan25/UniTraj/UniTraj/worldtrace_bs=1024/05-21-21-29-58/models/best_model_epoch_70.pt
+<----- Epoch 71 Training ---->
+Epoch 71 Training Loss: 0.01787
+Epoch 71 Validation Loss: 0.01607
+Validation loss decreased,
+saving model to /home/zhangshuzhan25/UniTraj/UniTraj/worldtrace_bs=1024/05-21-21-29-58/models/best_model_epoch_71.pt
+<----- Epoch 72 Training ---->
+Epoch 72 Training Loss: 0.01815
+Epoch 72 Validation Loss: 0.01608
+Validation loss did not decrease for 1 epochs
+<----- Epoch 73 Training ---->
+Epoch 73 Training Loss: 0.01837
+Epoch 73 Validation Loss: 0.01639
+Validation loss did not decrease for 2 epochs
+<----- Epoch 74 Training ---->
+Epoch 74 Training Loss: 0.01794
+Epoch 74 Validation Loss: 0.01533
+Validation loss decreased,
+saving model to /home/zhangshuzhan25/UniTraj/UniTraj/worldtrace_bs=1024/05-21-21-29-58/models/best_model_epoch_74.pt
+<----- Epoch 75 Training ---->
+Epoch 75 Training Loss: 0.01698
+Epoch 75 Validation Loss: 0.01602
+Validation loss did not decrease for 1 epochs
+<----- Epoch 76 Training ---->
+Epoch 76 Training Loss: 0.01702
+Epoch 76 Validation Loss: 0.01576
+Validation loss did not decrease for 2 epochs
+<----- Epoch 77 Training ---->
+Epoch 77 Training Loss: 0.01742
+Epoch 77 Validation Loss: 0.01501
+Validation loss decreased,
+saving model to /home/zhangshuzhan25/UniTraj/UniTraj/worldtrace_bs=1024/05-21-21-29-58/models/best_model_epoch_77.pt
+<----- Epoch 78 Training ---->
+Epoch 78 Training Loss: 0.01677
+Epoch 78 Validation Loss: 0.01534
+Validation loss did not decrease for 1 epochs
+<----- Epoch 79 Training ---->
+Epoch 79 Training Loss: 0.01580
+Epoch 79 Validation Loss: 0.01456
+Validation loss decreased,
+saving model to /home/zhangshuzhan25/UniTraj/UniTraj/worldtrace_bs=1024/05-21-21-29-58/models/best_model_epoch_79.pt
+<----- Epoch 80 Training ---->
+Epoch 80 Training Loss: 0.01602
+Epoch 80 Validation Loss: 0.01449
+Validation loss decreased,
+saving model to /home/zhangshuzhan25/UniTraj/UniTraj/worldtrace_bs=1024/05-21-21-29-58/models/best_model_epoch_80.pt
+<----- Epoch 81 Training ---->
+Epoch 81 Training Loss: 0.01635
+Epoch 81 Validation Loss: 0.01431
+Validation loss decreased,
+saving model to /home/zhangshuzhan25/UniTraj/UniTraj/worldtrace_bs=1024/05-21-21-29-58/models/best_model_epoch_81.pt
+<----- Epoch 82 Training ---->
+Epoch 82 Training Loss: 0.01567
+Epoch 82 Validation Loss: 0.01449
+Validation loss did not decrease for 1 epochs
+<----- Epoch 83 Training ---->
+Epoch 83 Training Loss: 0.01560
+Epoch 83 Validation Loss: 0.01437
+Validation loss did not decrease for 2 epochs
+<----- Epoch 84 Training ---->
+Epoch 84 Training Loss: 0.01572
+Epoch 84 Validation Loss: 0.01440
+Validation loss did not decrease for 3 epochs
+<----- Epoch 85 Training ---->
+Epoch 85 Training Loss: 0.01515
+Epoch 85 Validation Loss: 0.01412
+Validation loss decreased,
+saving model to /home/zhangshuzhan25/UniTraj/UniTraj/worldtrace_bs=1024/05-21-21-29-58/models/best_model_epoch_85.pt
+<----- Epoch 86 Training ---->
+Epoch 86 Training Loss: 0.01463
+Epoch 86 Validation Loss: 0.01386
+Validation loss decreased,
+saving model to /home/zhangshuzhan25/UniTraj/UniTraj/worldtrace_bs=1024/05-21-21-29-58/models/best_model_epoch_86.pt
+<----- Epoch 87 Training ---->
+Epoch 87 Training Loss: 0.01540
+Epoch 87 Validation Loss: 0.01419
+Validation loss did not decrease for 1 epochs
+<----- Epoch 88 Training ---->
+Epoch 88 Training Loss: 0.01473
+Epoch 88 Validation Loss: 0.01399
+Validation loss did not decrease for 2 epochs
+<----- Epoch 89 Training ---->
+Epoch 89 Training Loss: 0.01472
+Epoch 89 Validation Loss: 0.01401
+Validation loss did not decrease for 3 epochs
+<----- Epoch 90 Training ---->
+Epoch 90 Training Loss: 0.01485
+Epoch 90 Validation Loss: 0.01328
+Validation loss decreased,
+saving model to /home/zhangshuzhan25/UniTraj/UniTraj/worldtrace_bs=1024/05-21-21-29-58/models/best_model_epoch_90.pt
+<----- Epoch 91 Training ---->
+Epoch 91 Training Loss: 0.01463
+Epoch 91 Validation Loss: 0.01322
+Validation loss decreased,
+saving model to /home/zhangshuzhan25/UniTraj/UniTraj/worldtrace_bs=1024/05-21-21-29-58/models/best_model_epoch_91.pt
+<----- Epoch 92 Training ---->
+Epoch 92 Training Loss: 0.01465
+Epoch 92 Validation Loss: 0.01309
+Validation loss decreased,
+saving model to /home/zhangshuzhan25/UniTraj/UniTraj/worldtrace_bs=1024/05-21-21-29-58/models/best_model_epoch_92.pt
+<----- Epoch 93 Training ---->
+Epoch 93 Training Loss: 0.01443
+Epoch 93 Validation Loss: 0.01319
+Validation loss did not decrease for 1 epochs
+<----- Epoch 94 Training ---->
+Epoch 94 Training Loss: 0.01510
+Epoch 94 Validation Loss: 0.01415
+Validation loss did not decrease for 2 epochs
+<----- Epoch 95 Training ---->
+Epoch 95 Training Loss: 0.01450
+Epoch 95 Validation Loss: 0.01355
+Validation loss did not decrease for 3 epochs
+<----- Epoch 96 Training ---->
+Epoch 96 Training Loss: 0.01397
+Epoch 96 Validation Loss: 0.01329
+Validation loss did not decrease for 4 epochs
+<----- Epoch 97 Training ---->
+Epoch 97 Training Loss: 0.01437
+Epoch 97 Validation Loss: 0.01377
+Validation loss did not decrease for 5 epochs
+<----- Epoch 98 Training ---->
+Epoch 98 Training Loss: 0.01438
+Epoch 98 Validation Loss: 0.01320
+Validation loss did not decrease for 6 epochs
+<----- Epoch 99 Training ---->
+Epoch 99 Training Loss: 0.01455
+Epoch 99 Validation Loss: 0.01316
+Validation loss did not decrease for 7 epochs
+<----- Epoch 100 Training ---->
+Epoch 100 Training Loss: 0.01425
+Epoch 100 Validation Loss: 0.01278
+Validation loss decreased,
+saving model to /home/zhangshuzhan25/UniTraj/UniTraj/worldtrace_bs=1024/05-21-21-29-58/models/best_model_epoch_100.pt
+<----- Epoch 101 Training ---->
+Epoch 101 Training Loss: 0.01423
+Epoch 101 Validation Loss: 0.01274
+Validation loss decreased,
+saving model to /home/zhangshuzhan25/UniTraj/UniTraj/worldtrace_bs=1024/05-21-21-29-58/models/best_model_epoch_101.pt
+<----- Epoch 102 Training ---->
+Epoch 102 Training Loss: 0.01394
+Epoch 102 Validation Loss: 0.01352
+Validation loss did not decrease for 1 epochs
+<----- Epoch 103 Training ---->
+Epoch 103 Training Loss: 0.01411
+Epoch 103 Validation Loss: 0.01261
+Validation loss decreased,
+saving model to /home/zhangshuzhan25/UniTraj/UniTraj/worldtrace_bs=1024/05-21-21-29-58/models/best_model_epoch_103.pt
+<----- Epoch 104 Training ---->
+Epoch 104 Training Loss: 0.01427
+Epoch 104 Validation Loss: 0.01302
+Validation loss did not decrease for 1 epochs
+<----- Epoch 105 Training ---->
+Epoch 105 Training Loss: 0.01432
+Epoch 105 Validation Loss: 0.01319
+Validation loss did not decrease for 2 epochs
+<----- Epoch 106 Training ---->
+Epoch 106 Training Loss: 0.01407
+Epoch 106 Validation Loss: 0.01292
+Validation loss did not decrease for 3 epochs
+<----- Epoch 107 Training ---->
+Epoch 107 Training Loss: 0.01457
+Epoch 107 Validation Loss: 0.01238
+Validation loss decreased,
+saving model to /home/zhangshuzhan25/UniTraj/UniTraj/worldtrace_bs=1024/05-21-21-29-58/models/best_model_epoch_107.pt
+<----- Epoch 108 Training ---->
+Epoch 108 Training Loss: 0.01443
+Epoch 108 Validation Loss: 0.01344
+Validation loss did not decrease for 1 epochs
+<----- Epoch 109 Training ---->
+Epoch 109 Training Loss: 0.01395
+Epoch 109 Validation Loss: 0.01274
+Validation loss did not decrease for 2 epochs
+<----- Epoch 110 Training ---->
+Epoch 110 Training Loss: 0.01433
+Epoch 110 Validation Loss: 0.01257
+Validation loss did not decrease for 3 epochs
+<----- Epoch 111 Training ---->
+Epoch 111 Training Loss: 0.01420
+Epoch 111 Validation Loss: 0.01303
+Validation loss did not decrease for 4 epochs
+<----- Epoch 112 Training ---->
+Epoch 112 Training Loss: 0.01464
+Epoch 112 Validation Loss: 0.01279
+Validation loss did not decrease for 5 epochs
+<----- Epoch 113 Training ---->
+Epoch 113 Training Loss: 0.01403
+Epoch 113 Validation Loss: 0.01267
+Validation loss did not decrease for 6 epochs
+<----- Epoch 114 Training ---->
+Epoch 114 Training Loss: 0.01433
+Epoch 114 Validation Loss: 0.01220
+Validation loss decreased,
+saving model to /home/zhangshuzhan25/UniTraj/UniTraj/worldtrace_bs=1024/05-21-21-29-58/models/best_model_epoch_114.pt
+<----- Epoch 115 Training ---->
+Epoch 115 Training Loss: 0.01415
+Epoch 115 Validation Loss: 0.01339
+Validation loss did not decrease for 1 epochs
+<----- Epoch 116 Training ---->
+Epoch 116 Training Loss: 0.01389
+Epoch 116 Validation Loss: 0.01308
+Validation loss did not decrease for 2 epochs
+<----- Epoch 117 Training ---->
+Epoch 117 Training Loss: 0.01371
+Epoch 117 Validation Loss: 0.01250
+Validation loss did not decrease for 3 epochs
+<----- Epoch 118 Training ---->
+Epoch 118 Training Loss: 0.01424
+Epoch 118 Validation Loss: 0.01229
+Validation loss did not decrease for 4 epochs
+<----- Epoch 119 Training ---->
+Epoch 119 Training Loss: 0.01448
+Epoch 119 Validation Loss: 0.01292
+Validation loss did not decrease for 5 epochs
+<----- Epoch 120 Training ---->
+Epoch 120 Training Loss: 0.01422
+Epoch 120 Validation Loss: 0.01290
+Validation loss did not decrease for 6 epochs
+<----- Epoch 121 Training ---->
+Epoch 121 Training Loss: 0.01425
+Epoch 121 Validation Loss: 0.01291
+Validation loss did not decrease for 7 epochs
+<----- Epoch 122 Training ---->
+Epoch 122 Training Loss: 0.01471
+Epoch 122 Validation Loss: 0.01258
+Validation loss did not decrease for 8 epochs
+<----- Epoch 123 Training ---->
+Epoch 123 Training Loss: 0.01394
+Epoch 123 Validation Loss: 0.01279
+Validation loss did not decrease for 9 epochs
+<----- Epoch 124 Training ---->
+Epoch 124 Training Loss: 0.01432
+Epoch 124 Validation Loss: 0.01355
+Validation loss did not decrease for 10 epochs
+<----- Epoch 125 Training ---->
+Epoch 125 Training Loss: 0.01422
+Epoch 125 Validation Loss: 0.01406
+Validation loss did not decrease for 11 epochs
+<----- Epoch 126 Training ---->
+Epoch 126 Training Loss: 0.01439
+Epoch 126 Validation Loss: 0.01279
+Validation loss did not decrease for 12 epochs
+<----- Epoch 127 Training ---->
+Epoch 127 Training Loss: 0.01431
+Epoch 127 Validation Loss: 0.01324
+Validation loss did not decrease for 13 epochs
+<----- Epoch 128 Training ---->
+Epoch 128 Training Loss: 0.01403
+Epoch 128 Validation Loss: 0.01373
+Validation loss did not decrease for 14 epochs
+<----- Epoch 129 Training ---->
+Epoch 129 Training Loss: 0.01402
+Epoch 129 Validation Loss: 0.01368
+Validation loss did not decrease for 15 epochs
+<----- Epoch 130 Training ---->
+Epoch 130 Training Loss: 0.01435
+Epoch 130 Validation Loss: 0.01296
+Validation loss did not decrease for 16 epochs
+<----- Epoch 131 Training ---->
+Epoch 131 Training Loss: 0.01412
+Epoch 131 Validation Loss: 0.01338
+Validation loss did not decrease for 17 epochs
+<----- Epoch 132 Training ---->
+Epoch 132 Training Loss: 0.01420
+Epoch 132 Validation Loss: 0.01232
+Validation loss did not decrease for 18 epochs
+<----- Epoch 133 Training ---->
+Epoch 133 Training Loss: 0.01388
+Epoch 133 Validation Loss: 0.01349
+Validation loss did not decrease for 19 epochs
+<----- Epoch 134 Training ---->
+Epoch 134 Training Loss: 0.01388
+Epoch 134 Validation Loss: 0.01277
+Validation loss did not decrease for 20 epochs
+Early stopping triggered
+<----Training Done---->
