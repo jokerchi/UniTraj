@@ -68,20 +68,20 @@ class TrajectoryDataset(Dataset):
         intervals = torch.tensor(traj_df["interval"].values, dtype=torch.float32)
          # Step 3: masking
         trajectory_length = len(traj_df)
-        # mask_strategy = random.random()
-        # if mask_strategy < 0.7:
-        #     # self.mask_strategy == "random"
-        #     mask = self.apply_random_mask(trajectory_length)
-        # elif mask_strategy < 0.85:
-        #     # self.mask_strategy == "rdp"
-        #     mask = self.apply_rdp_mask(trajectory)
-        # elif mask_strategy < 0.9:
-        #     # self.mask_strategy == "block"
-        #     mask = self.apply_block_mask(trajectory_length)
-        # else:
-        #     # self.mask_strategy == "lastn"
-        #     mask = self.apply_last_n_mask(trajectory_length)
-        mask = self.apply_block_mask(trajectory_length)
+        mask_strategy = random.random()
+        if mask_strategy < 0.7:
+            # self.mask_strategy == "random"
+            mask = self.apply_random_mask(trajectory_length)
+        elif mask_strategy < 0.85:
+            # self.mask_strategy == "rdp"
+            mask = self.apply_rdp_mask(trajectory)
+        elif mask_strategy < 0.9:
+            # self.mask_strategy == "block"
+            mask = self.apply_block_mask(trajectory_length)
+        else:
+            # self.mask_strategy == "lastn"
+            mask = self.apply_last_n_mask(trajectory_length)
+        # mask = self.apply_block_mask(trajectory_length)
         
         original = trajectory[0]
         trajectory = trajectory - original

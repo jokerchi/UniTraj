@@ -25,7 +25,7 @@ class RotaryEmbedding(nn.Module):
 
     def forward(self, seq_len):
 
-        sin = self.sin[:seq_len, :].unsqueeze(0).unsqueeze(0)  
+        sin = self.sin[:seq_len, :].unsqueeze(0).unsqueeze(0)
         cos = self.cos[:seq_len, :].unsqueeze(0).unsqueeze(0)
         return sin, cos
 
