@@ -81,7 +81,6 @@ class TrajectoryDataset(Dataset):
         else:
             # self.mask_strategy == "lastn"
             mask = self.apply_last_n_mask(trajectory_length)
-        # mask = self.apply_block_mask(trajectory_length)
         
         original = trajectory[0]
         trajectory = trajectory - original
@@ -91,7 +90,7 @@ class TrajectoryDataset(Dataset):
             
         # Step 4: padding or truncate
         trajectory, attention_mask = self.pad_or_truncate(trajectory)
-        intervals, _ = self.pad_or_truncate(intervals)  
+        intervals, _ = self.pad_or_truncate(intervals)
 
         # Step 5: make sure mask is consistent as trajectory
         mask = np.pad(mask, (0, max(0, self.max_len - trajectory_length)), constant_values=0)
@@ -108,11 +107,11 @@ class TrajectoryDataset(Dataset):
         mask_indices = torch.tensor(np.where(mask==1)[0]).long()
         
         inputs = {
-            'trajectory': trajectory,  
-            'attention_mask': attention_mask, 
-            'original': original,
-            'intervals': intervals, 
-            'indices': mask_indices 
+            'trajectory': trajectory,  # [2,200]
+            'attention_mask': attention_mask,  #[200]
+            'original': original, #[2]
+            'intervals': intervals, #[200]
+            'indices': mask_indices  #[100]
         }
       
         return inputs
@@ -130,7 +129,7 @@ class TrajectoryDataset(Dataset):
         )
 
         mask[mask_indices] = True
-
+        # mask一个trajectory_length长度的bool向量，遮蔽位置是True，未遮蔽位置是false。
         return mask
 
     # 进行last n遮蔽
@@ -229,6 +228,7 @@ class TrajectoryDataset(Dataset):
         
         if random.random() < 0.3 and trajectory_length >=360:
             # interval consistent resamping
+            # 实行时间间隔一致的轨迹重采样，
             if trajectory_length > 540: 
                 sampling_interval = random.randint(8, 15)
             elif trajectory_length > 360: 
@@ -245,6 +245,7 @@ class TrajectoryDataset(Dataset):
             resampled_df["interval"] = (
                 resampled_df["time"].diff().dt.total_seconds().fillna(0).astype('float32')
             )
+            # 最终的resampled_df -> time, longitude, latitude, interval
         else:
             # dynamic resamping with logarithmic ratio
             sampling_ratio = (
@@ -266,7 +267,7 @@ class TrajectoryDataset(Dataset):
                 resampled_df["time"].diff().dt.total_seconds().fillna(0).astype('float32')
             )
 
-
+        # 最终的resampled_df -> time, longitude, latitude, interval，是重采样过的轨迹。
         return resampled_df
 
     def pad_or_truncate(self, tensor):
@@ -285,12 +286,13 @@ class TrajectoryDataset(Dataset):
                 padded_tensor = torch.zeros(self.max_len, dtype=tensor.dtype)
                 attention_mask = None
             padded_tensor[:seq_len] = tensor
-            
+        
+        # 把序列统一到max_len的长度，其中attention_mask中，1表示真实点，0表示补齐
         return padded_tensor, attention_mask
 
 
 if __name__ == '__main__':
-    file_path = 'worldtrace_sample.pkl'
+    file_path = '../data/worldtrace_sample.pkl'
     normalize_transform = Normalize()
     dataset = TrajectoryDataset(data_path=file_path, max_len = 200, transform=normalize_transform, mask_ratio=0.5)
     dataloader = DataLoader(dataset, batch_size=512, shuffle=True,num_workers=16)
@@ -300,6 +302,7 @@ if __name__ == '__main__':
         print("original_location:", batch['original'].shape)
         print("intervals:", batch['intervals'].shape)
         print("indices:", batch["indices"].shape)
+        break
         
     print("Done!")
  

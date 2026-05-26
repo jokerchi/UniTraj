@@ -198,7 +198,7 @@ class PatchShuffle(nn.Module):
     def forward(self, patches: torch.Tensor, mask_indices=None):
         """
         Args:
-            patches (Tensor): tokenizer of patches [T, B, C]
+            patches (Tensor): tokenizer of patches [L, B, C]
             mask_indices (List[List[int]]): optional
 
         Returns:
@@ -227,22 +227,25 @@ class PatchShuffle(nn.Module):
 
 
 # 把轨迹序列切成 token、融合时间间隔、随机遮蔽并加 CLS，然后用 Transformer 编码，输出特征和还原索引
-# 
+# patch_size是把轨迹序列“切成token”的时间步的大小.
 class Encoder(nn.Module):
     def __init__(
         self,
-        trajectory_length=200,
-        patch_size=2,
-        embedding_dim=128,
-        num_layers=8,
-        num_heads=4,
-        mask_ratio=0.5,
+        trajectory_length,
+        patch_size,
+        embedding_dim,
+        num_layers,
+        num_heads,
+        mask_ratio,
     ):
         super().__init__()
         self.num_tokens = trajectory_length // patch_size
+        # 这里的max_seq_len很奇怪。
         self.max_seq_len = 512
+        # cls_token 是一个可学习的“全局汇总”token，类似 ViT/BERT 的 [CLS]。它会被拼到序列最前面，让 Transformer 通过自注意力把整条轨迹的全局信息聚合到这个位置，方便后续下游任务使用（分类/回归/检索等）。
         self.cls_token = nn.Parameter(torch.zeros(1, 1, embedding_dim))
         self.shuffle = PatchShuffle(mask_ratio)
+        # 一维卷积把轨迹序列切成 token，并映射到 embedding_dim：输入通道是 2（经纬度），卷积核大小和步长都是 patch_size，所以每 patch_size 个点生成一个 token。
         self.tokenizer = nn.Conv1d(2, embedding_dim, patch_size, patch_size)
         self.transformer = Transformer(
             embedding_dim,
@@ -263,7 +266,7 @@ class Encoder(nn.Module):
         """
         Args:
             trajectory (Tensor):  [B, 2, L]
-            interval_embedding (Tensor): [B, L', C]
+            interval_embedding (Tensor): [B, L, embedding_dim]
             mask_indices (List[List[int]]): optional
 
         Returns:
@@ -275,21 +278,21 @@ class Encoder(nn.Module):
 
         # add iterval embedding
         interval_embedding = rearrange(interval_embedding, "b l c -> l b c")  # [num_tokens, B, embedding_dim]
-        tokens = tokens + interval_embedding
+        tokens = tokens + interval_embedding # [num_tokens, B, embedding_dim]
 
         # shuffle tokenizer and masking
         tokens, forward_indices, backward_indices = self.shuffle(tokens, mask_indices)
 
         # add first token for downstream tasks
         tokens = torch.cat(
-            [self.cls_token.expand(-1, tokens.shape[1], -1), tokens], dim=0  # [num_tokens+1, B, embedding_dim]
+            [self.cls_token.expand(-1, tokens.shape[1], -1), tokens], dim=0  # [unmasker_num_tokens+1, B, embedding_dim]
         )
-        tokens = rearrange(tokens, "t b c -> b t c")  # [B, num_tokens+1, embedding_dim]
+        tokens = rearrange(tokens, "t b c -> b t c")  # [B, unmasker_num_tokens+1, embedding_dim]
 
         # Transformer 
         features = self.transformer(tokens)
         features = self.layer_norm(features)
-        features = rearrange(features, "b t c -> t b c")  # [num_tokens+1, B, embedding_dim]
+        features = rearrange(features, "b t c -> t b c")  # [unmasker_num_tokens+1, B, embedding_dim]
 
         return features, backward_indices
 
@@ -297,11 +300,11 @@ class Encoder(nn.Module):
 class Decoder(nn.Module):
     def __init__(
         self,
-        trajectory_length=200,
-        patch_size=2,
-        embedding_dim=192,
-        num_layers=4,
-        num_heads=2,
+        trajectory_length,
+        patch_size,
+        embedding_dim,
+        num_layers,
+        num_heads,
     ):
         super().__init__()
         self.num_tokens = trajectory_length // patch_size
@@ -335,13 +338,14 @@ class Decoder(nn.Module):
         Args:
             features (Tensor): [T, B, C]
             backward_indices (Tensor): [T-1, B]
-            interval_embedding (Tensor):  [B, L', C]
+            interval_embedding (Tensor):  [B, L, C]
 
         Returns:
             Tuple[Tensor, Tensor]: reconstructed trajectory
         """
         T,B = features.shape[0],features.shape[1]
 
+        # 这段是在给 backward_indices 加上 CLS 位置的索引偏移，因为后面序列会在最前面加一个 cls_token，所以原来的 token 索引都要整体 +1，并在最前面补一个 0 表示 CLS。
         backward_indices = torch.cat(
             [
                 torch.zeros(1, backward_indices.shape[1], dtype=backward_indices.dtype).to(backward_indices.device),
@@ -371,7 +375,7 @@ class Decoder(nn.Module):
         features = rearrange(features, "t b c -> b t c")  # [B, num_tokens+1, embedding_dim]
         features = self.transformer(features)
         features = rearrange(features, "b t c -> t b c")  # [num_tokens+1, B, embedding_dim]
-        features = features[1:]   
+        features = features[1:]
 
         patches = self.head(features)  # [num_tokens, B, 2 * patch_size]
 
@@ -381,7 +385,7 @@ class Decoder(nn.Module):
 
         traj = self.token_to_traj(patches)
         mask = self.token_to_traj(mask)
-
+        # 返回重建轨迹和对应的mask内容
         return traj, mask
 
 
@@ -411,18 +415,17 @@ class UniTraj(nn.Module):
         """
         Args:
             trajectory (Tensor):  [B, 2, L]
-            interval_embedding (Tensor): [B, L', C]
+            interval(Tensor): [B, L]
             mask_indices (List[List[int]]): optional
 
         Returns:
             Tuple[Tensor, Tensor]: the reconstructed trajectory and mask index
         """
 
+        # 有时间间隔就线性层变换到embedding_dim，没时间间隔就用零张量占位。
         if intervals is not None:
             intervals = intervals.unsqueeze(-1)  # [B, L, 1]
             interval_embeddings = self.interval_embedding(intervals)  # [B, L, embedding_dim]
-            # intervals_pooled = F.avg_pool1d(intervals.float(), kernel_size=self.encoder.tokenizer.kernel_size[0], stride=self.encoder.tokenizer.stride[0]).squeeze(1)  # [B, num_tokens]
-            # interval_embeddings = self.interval_embedding(intervals_pooled.unsqueeze(-1))  # [B, num_tokens, embedding_dim]
         else:
             intervals_pooled = torch.zeros((trajectory.shape[0], self.encoder.num_tokens), device=trajectory.device)
             interval_embeddings = self.interval_embedding(intervals_pooled.unsqueeze(-1))  # [B, num_tokens, embedding_dim]

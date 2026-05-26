@@ -28,9 +28,11 @@ def main(config, logger):
 
     # Create the model
     model = UniTraj(
-        trajectory_length=200,
+        # trajectory_length=200,
+        trajectory_length=config.data.traj_length,
         patch_size=1,
-        embedding_dim=128,
+        # embedding_dim=128,
+        embedding_dim=config.data.emb_dim,
         encoder_layers=8,
         encoder_heads=4,
         decoder_layers=4,
@@ -38,16 +40,16 @@ def main(config, logger):
         mask_ratio=0.5,
     )
 
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-
+    # 模型放置到gpu上
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = model.to(device)
-
     if torch.cuda.device_count() > 1:
         logger.info(f"Using {torch.cuda.device_count()} GPUs for training")
         model = torch.nn.DataParallel(model, device_ids=[0, 1])
-
     print(next(model.parameters()).device)
 
+
+    # 读取训练集和验证集
     # file_path = "../data/worldtrace_train.pkl"
     file_path = './data/worldtrace_sample.pkl'
     normalize_transform = Normalize()
@@ -61,24 +63,8 @@ def main(config, logger):
         dataset, [train_size, val_size], generator=torch.Generator().manual_seed(42)
     )
 
-    dataloader = DataLoader(train_set, batch_size=config.training.batch_size, shuffle=True, num_workers=32, pin_memory=True)
+    dataloader = DataLoader(train_set, batch_size=config.training.batch_size, shuffle=True, num_workers=config.data.num_workers, pin_memory=True)
     dataloader_val = DataLoader(val_set, batch_size=config.training.batch_size, shuffle=False, num_workers=16)
-
-    # dataloader = DataLoader(
-    #     dataset, batch_size=config.training.batch_size, shuffle=True, num_workers=32, pin_memory=True)
-
-    # val_file_path = './data/worldtrace_sample.pkl'
-    # dataset_val = TrajectoryDataset(
-    #     data_path= val_file_path,
-    #     max_len=200,
-    #     transform=normalize_transform,
-    # )
-    # dataloader_val = DataLoader(
-    #     dataset_val,
-    #     batch_size=config.training.batch_size,
-    #     shuffle=False,
-    #     num_workers=16,
-    # )
 
 
     # optimizer
@@ -109,8 +95,6 @@ def main(config, logger):
             optim.step()
             
             train_losses.append(loss.item())
-            
-            # break
             
         avg_train_loss = np.mean(train_losses)
         logger.info(f"Epoch {epoch} Training Loss: {avg_train_loss:.5f}")
@@ -190,10 +174,6 @@ def setup_experiment_directories(config, Exp_name="UniTraj"):
         __name__, log_path=exp_dir / (timestamp + "/out.log"), colorize=True
     )
     return logger, files_save, result_save, model_save
-
-
-
-
 
 if __name__ == "__main__":
     # Load configuration
