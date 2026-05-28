@@ -1,5 +1,8 @@
 import torch
 import pickle, random, math
+import bisect
+import glob
+from pathlib import Path
 import numpy as np
 import pandas as pd
 from rdp import rdp
@@ -45,20 +48,67 @@ class TrajectoryDataset(Dataset):
             for length in np.arange(MIN_POINTS, MAX_POINTS + 1, 1)
         ]
         self.mask_strategy = "random"
-        # load data from pickle file: a pandas DataFrame
-        try:
-            with open(self.data_path, "rb") as f:
-                self.data = pd.read_pickle(f)
-        except:
-            raise FileNotFoundError(f"File not found: {self.data_path}")
-        
+        # # load data from pickle file: a pandas DataFrame
+        # try:
+        #     with open(self.data_path, "rb") as f:
+        #         self.data = pd.read_pickle(f)
+        # except:
+        #     raise FileNotFoundError(f"File not found: {self.data_path}")
+        self.data_files = self._collect_pickle_files(self.data_path)
+        if not self.data_files:
+            raise FileNotFoundError(f"No pickle files found: {self.data_path}")
+
+        self._single_file = len(self.data_files) == 1
+        self._cache_file_idx = None
+        self._cache_df = None
+        if self._single_file:
+            self.data = pd.read_pickle(self.data_files[0])
+            self.file_lengths = [len(self.data)]
+            self.cum_lengths = [len(self.data)]
+        else:
+            self.data = None
+            self.file_lengths = []
+            for path in self.data_files:
+                df = pd.read_pickle(path)
+                self.file_lengths.append(len(df))
+                del df
+            self.cum_lengths = list(np.cumsum(self.file_lengths))
+    
+
+    def _collect_pickle_files(self, data_path):
+        if isinstance(data_path, (list, tuple)):
+            return [Path(p) for p in data_path]
+        path = Path(data_path)
+        if path.is_file():
+            return [path]
+        if path.is_dir():
+            return sorted(path.rglob("*.pkl"))
+        return sorted(Path(p) for p in glob.glob(str(data_path), recursive=True))
+
+    def _load_dataframe(self, file_idx):
+        if self._cache_file_idx == file_idx and self._cache_df is not None:
+            return self._cache_df
+        df = pd.read_pickle(self.data_files[file_idx])
+        self._cache_file_idx = file_idx
+        self._cache_df = df
+        return df
+
+    def _get_sample(self, idx):
+        if self._single_file:
+            return self.data.iloc[idx]
+        file_idx = bisect.bisect_right(self.cum_lengths, idx)
+        prev_cum = 0 if file_idx == 0 else self.cum_lengths[file_idx - 1]
+        local_idx = idx - prev_cum
+        df = self._load_dataframe(file_idx)
+        return df.iloc[local_idx]
+
     def set_mask_ratio(self, mask_ratio):
         self.mask_ratio = mask_ratio
         # update num_masked_points
         self.num_masked_points = int(self.max_len * self.mask_ratio)
     
     def __len__(self):
-        return len(self.data)
+        return self.cum_lengths[-1]
 
     def __getitem__(self, idx):
         # Step 1: get a trajectory data
@@ -216,7 +266,7 @@ class TrajectoryDataset(Dataset):
         return rdp_mask
 
     def resample_trajectory(self, idx):
-        sample = self.data.iloc[idx]
+        sample = self._get_sample(idx)
         full_df = pd.DataFrame(
             {
                 "time": sample["time"],

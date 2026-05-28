@@ -50,22 +50,33 @@ def main(config, logger):
 
 
     # 读取训练集和验证集
-    # file_path = "../data/worldtrace_train.pkl"
-    file_path = './data/worldtrace_sample.pkl'
+    # train/val path can be a .pkl file, a directory of shard .pkl files, or a glob pattern.
+    train_file_path = config.data.train_file_path
+    val_file_path = config.data.val_file_path
     normalize_transform = Normalize()
-    dataset = TrajectoryDataset(
-        data_path=file_path, max_len=200, transform=normalize_transform
+    train_set = TrajectoryDataset(
+        data_path=train_file_path, max_len=200, transform=normalize_transform
+    )
+    val_set = TrajectoryDataset(
+        data_path=val_file_path, max_len=200, transform=normalize_transform
     )
 
-    train_size = int(0.8 * len(dataset))
-    val_size = len(dataset) - train_size
-    train_set, val_set = random_split(
-        dataset, [train_size, val_size], generator=torch.Generator().manual_seed(42)
+    num_workers = max(0, int(config.data.num_workers))
+    pin_memory = torch.cuda.is_available()
+    dataloader = DataLoader(
+        train_set,
+        batch_size=config.training.batch_size,
+        shuffle=True,
+        num_workers=num_workers,
+        pin_memory=pin_memory,
     )
-
-    dataloader = DataLoader(train_set, batch_size=config.training.batch_size, shuffle=True, num_workers=config.data.num_workers, pin_memory=True)
-    dataloader_val = DataLoader(val_set, batch_size=config.training.batch_size, shuffle=False, num_workers=16)
-
+    dataloader_val = DataLoader(
+        val_set,
+        batch_size=config.training.batch_size,
+        shuffle=False,
+        num_workers=num_workers,
+        pin_memory=pin_memory,
+    )
 
     # optimizer
     optim = torch.optim.Adam(model.parameters(), lr=1e-3)  # Optimizer

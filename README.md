@@ -63,6 +63,28 @@ We also provide a sample of the WorldTrace dataset in the *data/directory* to he
 
 - load_see_data.ipynb: A Jupyter Notebook that demonstrates how to load the sample data and visualize the trajectories.
 
+### Converting matched CSV trajectories
+If your data is stored as one CSV per trajectory with columns `time, matched_latitude, matched_longitude`, convert it to the UniTraj pickle format:
+
+```bash
+python convert_matched_csv_to_pickle.py --input /path/to/csv_dir --output data/custom.pkl
+```
+
+For large datasets, shard the output to reduce memory pressure:
+
+```bash
+python convert_matched_csv_to_pickle.py --input /path/to/csv_dir --output data/shards --shard-size 10000
+```
+
+To train with explicit train/validation shard splits, place shard files into separate directories and set both paths in `main.py`:
+
+```python
+train_file_path = './data/trajectory_shards/train'
+val_file_path = './data/trajectory_shards/val'
+```
+
+Both paths support a single `.pkl`, a shard directory, or a glob pattern.
+
 ## 📝 Citation
 If you find our work useful in your research, please consider citing our paper:
 ```ini
