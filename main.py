@@ -53,27 +53,50 @@ def main(config, logger):
     # train/val path can be a .pkl file, a directory of shard .pkl files, or a glob pattern.
     train_file_path = config.data.train_file_path
     val_file_path = config.data.val_file_path
+    sampler_seed = getattr(config.data, "sampler_seed", 2024)
     normalize_transform = Normalize()
     train_set = TrajectoryDataset(
-        data_path=train_file_path, max_len=200, transform=normalize_transform
+        data_path=train_file_path,
+        max_len=config.data.traj_length,
+        transform=normalize_transform,
+        mode="train",
+        seed=sampler_seed,
     )
     val_set = TrajectoryDataset(
-        data_path=val_file_path, max_len=200, transform=normalize_transform
+        data_path=val_file_path,
+        max_len=config.data.traj_length,
+        transform=normalize_transform,
+        mode="val",
+        seed=sampler_seed,
     )
+    logger.info(f"Train shards: {len(train_set.data_files)}, trajectories: {len(train_set)}")
+    logger.info(f"Validation shards: {len(val_set.data_files)}, trajectories: {len(val_set)}")
 
     num_workers = max(0, int(config.data.num_workers))
     pin_memory = torch.cuda.is_available()
-    dataloader = DataLoader(
+    train_sampler = ShardBatchSampler(
         train_set,
         batch_size=config.training.batch_size,
         shuffle=True,
+        drop_last=False,
+        seed=sampler_seed,
+    )
+    val_sampler = ShardBatchSampler(
+        val_set,
+        batch_size=config.training.batch_size,
+        shuffle=False,
+        drop_last=False,
+        seed=sampler_seed,
+    )
+    dataloader = DataLoader(
+        train_set,
+        batch_sampler=train_sampler,
         num_workers=num_workers,
         pin_memory=pin_memory,
     )
     dataloader_val = DataLoader(
         val_set,
-        batch_size=config.training.batch_size,
-        shuffle=False,
+        batch_sampler=val_sampler,
         num_workers=num_workers,
         pin_memory=pin_memory,
     )
@@ -92,6 +115,14 @@ def main(config, logger):
         for batch_idx, batch in enumerate(dataloader):
             traj, atten_mask = batch["trajectory"], batch["attention_mask"]
             interval, indices = batch["intervals"], batch["indices"]
+            if epoch == 0 and batch_idx == 0:
+                logger.info(
+                    "Train batch shapes: "
+                    f"trajectory={tuple(traj.shape)}, "
+                    f"attention_mask={tuple(atten_mask.shape)}, "
+                    f"intervals={tuple(interval.shape)}, "
+                    f"indices={tuple(indices.shape)}"
+                )
             interval = interval.to(device)
             traj = traj.to(device)
             atten_mask = atten_mask.to(device)
@@ -117,6 +148,14 @@ def main(config, logger):
                 traj, atten_mask = batch["trajectory"], batch["attention_mask"]
                 interval = batch["intervals"]
                 indices = batch["indices"]
+                if epoch == 0 and batch_idx == 0:
+                    logger.info(
+                        "Validation batch shapes: "
+                        f"trajectory={tuple(traj.shape)}, "
+                        f"attention_mask={tuple(atten_mask.shape)}, "
+                        f"intervals={tuple(interval.shape)}, "
+                        f"indices={tuple(indices.shape)}"
+                    )
                 interval = interval.to(device)
                 traj = traj.to(device)
                 atten_mask = atten_mask.to(device)

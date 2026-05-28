@@ -2,11 +2,12 @@ import torch
 import pickle, random, math
 import bisect
 import glob
+from contextlib import contextmanager
 from pathlib import Path
 import numpy as np
 import pandas as pd
 from rdp import rdp
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset, DataLoader, Sampler
 
 MIN_POINTS = 36
 MAX_POINTS = 600
@@ -37,11 +38,15 @@ def logarithmic_sampling_ratio(length, min_points=36, max_points=600, min_ratio=
 
 
 class TrajectoryDataset(Dataset):
-    def __init__(self, data_path, max_len=200, transform=None, mask_ratio=0.5):
+    def __init__(self, data_path, max_len=200, transform=None, mask_ratio=0.5, mode="train", seed=2024):
         self.data_path = data_path
         self.transform = transform
         self.max_len = max_len
         self.mask_ratio = mask_ratio
+        if mode not in ("train", "val", "test"):
+            raise ValueError(f"Unsupported dataset mode: {mode}")
+        self.mode = mode
+        self.seed = seed
         self.num_masked_points = int(self.max_len * self.mask_ratio)
         self.sampling_ratios = [
             logarithmic_sampling_ratio(length)
@@ -76,14 +81,20 @@ class TrajectoryDataset(Dataset):
     
 
     def _collect_pickle_files(self, data_path):
+        def collect_one(path_like):
+            path = Path(path_like).expanduser()
+            if path.is_file():
+                return [path]
+            if path.is_dir():
+                return sorted(path.rglob("*.pkl"))
+            return sorted(Path(p).expanduser() for p in glob.glob(str(path), recursive=True))
+
         if isinstance(data_path, (list, tuple)):
-            return [Path(p) for p in data_path]
-        path = Path(data_path)
-        if path.is_file():
-            return [path]
-        if path.is_dir():
-            return sorted(path.rglob("*.pkl"))
-        return sorted(Path(p) for p in glob.glob(str(data_path), recursive=True))
+            files = []
+            for item in data_path:
+                files.extend(collect_one(item))
+            return files
+        return collect_one(data_path)
 
     def _load_dataframe(self, file_idx):
         if self._cache_file_idx == file_idx and self._cache_df is not None:
@@ -110,7 +121,28 @@ class TrajectoryDataset(Dataset):
     def __len__(self):
         return self.cum_lengths[-1]
 
+    @contextmanager
+    def _rng_context(self, idx):
+        if self.mode == "train":
+            yield
+            return
+
+        py_state = random.getstate()
+        np_state = np.random.get_state()
+        seed = (self.seed + int(idx)) % (2**32 - 1)
+        random.seed(seed)
+        np.random.seed(seed)
+        try:
+            yield
+        finally:
+            random.setstate(py_state)
+            np.random.set_state(np_state)
+
     def __getitem__(self, idx):
+        with self._rng_context(idx):
+            return self._build_item(idx)
+
+    def _build_item(self, idx):
         # Step 1: get a trajectory data
         traj_df = self.resample_trajectory(idx)
         # Step 2: get coordinates and time interval
@@ -341,6 +373,46 @@ class TrajectoryDataset(Dataset):
         return padded_tensor, attention_mask
 
 
+class ShardBatchSampler(Sampler):
+    def __init__(self, dataset, batch_size, shuffle=True, drop_last=False, seed=2024):
+        self.dataset = dataset
+        self.batch_size = int(batch_size)
+        self.shuffle = shuffle
+        self.drop_last = drop_last
+        self.seed = seed
+        self.epoch = 0
+        if self.batch_size <= 0:
+            raise ValueError("batch_size must be positive")
+        if not hasattr(dataset, "file_lengths") or not hasattr(dataset, "cum_lengths"):
+            raise ValueError("ShardBatchSampler requires a TrajectoryDataset instance")
+
+    def __iter__(self):
+        rng = np.random.default_rng(self.seed + self.epoch)
+        self.epoch += 1
+
+        file_order = list(range(len(self.dataset.file_lengths)))
+        if self.shuffle:
+            rng.shuffle(file_order)
+
+        for file_idx in file_order:
+            file_len = self.dataset.file_lengths[file_idx]
+            start_idx = 0 if file_idx == 0 else self.dataset.cum_lengths[file_idx - 1]
+            indices = np.arange(start_idx, start_idx + file_len)
+            if self.shuffle:
+                rng.shuffle(indices)
+
+            for batch_start in range(0, file_len, self.batch_size):
+                batch = indices[batch_start : batch_start + self.batch_size].tolist()
+                if len(batch) < self.batch_size and self.drop_last:
+                    continue
+                yield batch
+
+    def __len__(self):
+        if self.drop_last:
+            return sum(length // self.batch_size for length in self.dataset.file_lengths)
+        return sum((length + self.batch_size - 1) // self.batch_size for length in self.dataset.file_lengths)
+
+
 if __name__ == '__main__':
     file_path = '../data/worldtrace_sample.pkl'
     normalize_transform = Normalize()
@@ -355,4 +427,3 @@ if __name__ == '__main__':
         break
         
     print("Done!")
- 
