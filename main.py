@@ -24,6 +24,52 @@ os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
 os.environ["CUDA_VISIBLE_DEVICES"] = "0,1"
 
 
+def masked_mae_rmse(predicted_traj, traj, mask, atten_mask):
+    with torch.no_grad():
+        metric_mask = mask * atten_mask
+        denom = metric_mask.sum().clamp_min(1.0)
+        error = predicted_traj - traj
+        mae = (error.abs() * metric_mask).sum() / denom
+        rmse = torch.sqrt((error ** 2 * metric_mask).sum() / denom)
+        return mae, rmse
+
+
+def restore_lonlat(trajectory, original, normalize_transform):
+    mean = normalize_transform.mean.to(trajectory.device).view(1, 2, 1)
+    std = normalize_transform.std.to(trajectory.device).view(1, 2, 1)
+    original = original.to(trajectory.device).unsqueeze(-1)
+    return trajectory * std + mean + original
+
+
+def haversine_distance_meters(predicted_lonlat, target_lonlat):
+    radius = 6371000.0
+    pred_lon = torch.deg2rad(predicted_lonlat[:, 0])
+    pred_lat = torch.deg2rad(predicted_lonlat[:, 1])
+    target_lon = torch.deg2rad(target_lonlat[:, 0])
+    target_lat = torch.deg2rad(target_lonlat[:, 1])
+
+    dlon = pred_lon - target_lon
+    dlat = pred_lat - target_lat
+    a = (
+        torch.sin(dlat / 2) ** 2
+        + torch.cos(target_lat) * torch.cos(pred_lat) * torch.sin(dlon / 2) ** 2
+    )
+    c = 2 * torch.atan2(torch.sqrt(a), torch.sqrt((1 - a).clamp_min(0.0)))
+    return radius * c
+
+
+def masked_meter_mae_rmse(predicted_traj, traj, original, normalize_transform, mask, atten_mask):
+    with torch.no_grad():
+        predicted_lonlat = restore_lonlat(predicted_traj, original, normalize_transform)
+        target_lonlat = restore_lonlat(traj, original, normalize_transform)
+        distance = haversine_distance_meters(predicted_lonlat, target_lonlat)
+        point_mask = (mask * atten_mask)[:, 0]
+        denom = point_mask.sum().clamp_min(1.0)
+        mae = (distance * point_mask).sum() / denom
+        rmse = torch.sqrt((distance ** 2 * point_mask).sum() / denom)
+        return mae, rmse
+
+
 def main(config, logger):
 
     # Create the model
@@ -111,6 +157,8 @@ def main(config, logger):
     for epoch in range(0, config.training.n_epochs + 1):
         model.train()
         train_losses = []  # Store losses 
+        train_maes = []
+        train_rmses = []
         logger.info("<----- Epoch {} Training ---->".format(epoch))
         for batch_idx, batch in enumerate(dataloader):
             traj, atten_mask = batch["trajectory"], batch["attention_mask"]
@@ -131,23 +179,36 @@ def main(config, logger):
 
             predicted_traj, mask = model(traj, interval, indices)
             loss = torch.mean((predicted_traj - traj) ** 2 * mask * atten_mask) / 0.5
+            mae, rmse = masked_mae_rmse(predicted_traj, traj, mask, atten_mask)
             
             optim.zero_grad()
             loss.backward()
             optim.step()
             
             train_losses.append(loss.item())
+            train_maes.append(mae.item())
+            train_rmses.append(rmse.item())
             
         avg_train_loss = np.mean(train_losses)
-        logger.info(f"Epoch {epoch} Training Loss: {avg_train_loss:.5f}")
+        avg_train_mae = np.mean(train_maes)
+        avg_train_rmse = np.mean(train_rmses)
+        logger.info(
+            f"Epoch {epoch} Training Loss: {avg_train_loss:.5f}, "
+            f"MAE: {avg_train_mae:.5f}, RMSE: {avg_train_rmse:.5f}"
+        )
 
         model.eval()
         val_losses = []
+        val_maes = []
+        val_rmses = []
+        val_meter_maes = []
+        val_meter_rmses = []
         with torch.no_grad():
             for batch_idx, batch in enumerate(dataloader_val):
                 traj, atten_mask = batch["trajectory"], batch["attention_mask"]
                 interval = batch["intervals"]
                 indices = batch["indices"]
+                original = batch["original"]
                 if epoch == 0 and batch_idx == 0:
                     logger.info(
                         "Validation batch shapes: "
@@ -159,14 +220,31 @@ def main(config, logger):
                 interval = interval.to(device)
                 traj = traj.to(device)
                 atten_mask = atten_mask.to(device)
+                original = original.to(device)
                 atten_mask = atten_mask.unsqueeze(1).expand_as(traj)
                 
                 predicted_traj, mask = model(traj, interval, indices)
                 val_loss = torch.mean((predicted_traj - traj) ** 2 * mask * atten_mask) / 0.5
+                val_mae, val_rmse = masked_mae_rmse(predicted_traj, traj, mask, atten_mask)
+                meter_mae, meter_rmse = masked_meter_mae_rmse(
+                    predicted_traj, traj, original, normalize_transform, mask, atten_mask
+                )
                 val_losses.append(val_loss.item())
+                val_maes.append(val_mae.item())
+                val_rmses.append(val_rmse.item())
+                val_meter_maes.append(meter_mae.item())
+                val_meter_rmses.append(meter_rmse.item())
         
         avg_val_loss = np.mean(val_losses)
-        logger.info(f"Epoch {epoch} Validation Loss: {avg_val_loss:.5f}")
+        avg_val_mae = np.mean(val_maes)
+        avg_val_rmse = np.mean(val_rmses)
+        avg_val_meter_mae = np.mean(val_meter_maes)
+        avg_val_meter_rmse = np.mean(val_meter_rmses)
+        logger.info(
+            f"Epoch {epoch} Validation Loss: {avg_val_loss:.5f}, "
+            f"MAE: {avg_val_mae:.5f}, RMSE: {avg_val_rmse:.5f}, "
+            f"Meter MAE: {avg_val_meter_mae:.2f}, Meter RMSE: {avg_val_meter_rmse:.2f}"
+        )
         
         scheduler.step(avg_val_loss)
     
