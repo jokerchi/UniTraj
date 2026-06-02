@@ -1,0 +1,11 @@
+{
+  "format": "parquet",
+  "total_trajectories": 5000,
+  "num_shards": 1,
+  "shards": [
+    {
+      "file": "trajectories_000001.parquet",
+      "num_trajectories": 5000
+    }
+  ]
+}
