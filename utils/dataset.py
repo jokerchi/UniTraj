@@ -2,12 +2,14 @@ import torch
 import pickle, random, math
 import bisect
 import glob
+import json
+import os
 from contextlib import contextmanager
 from pathlib import Path
 import numpy as np
 import pandas as pd
 from rdp import rdp
-from torch.utils.data import Dataset, DataLoader, Sampler
+from torch.utils.data import Dataset, DataLoader, Sampler, IterableDataset, get_worker_info
 
 MIN_POINTS = 36
 MAX_POINTS = 600
@@ -371,6 +373,317 @@ class TrajectoryDataset(Dataset):
         
         # 把序列统一到max_len的长度，其中attention_mask中，1表示真实点，0表示补齐
         return padded_tensor, attention_mask
+
+
+class TrajectoryIterableDataset(IterableDataset):
+    def __init__(
+        self,
+        data_path,
+        max_len=200,
+        transform=None,
+        mask_ratio=0.5,
+        mode="train",
+        seed=2024,
+        shuffle_buffer_size=4096,
+        record_batch_size=1024,
+    ):
+        if mode not in ("train", "val", "test"):
+            raise ValueError(f"Unsupported dataset mode: {mode}")
+
+        self.data_path = data_path
+        self.data_files = self._collect_parquet_files(data_path)
+        if not self.data_files:
+            raise FileNotFoundError(f"No parquet files found: {data_path}")
+
+        self.max_len = max_len
+        self.transform = transform
+        self.mask_ratio = mask_ratio
+        self.mode = mode
+        self.seed = seed
+        self.shuffle_buffer_size = int(shuffle_buffer_size)
+        self.record_batch_size = int(record_batch_size)
+        self.num_masked_points = int(self.max_len * self.mask_ratio)
+        self.sampling_ratios = [
+            logarithmic_sampling_ratio(length)
+            for length in np.arange(MIN_POINTS, MAX_POINTS + 1, 1)
+        ]
+        self.total_trajectories = self._load_total_trajectories()
+        self._epoch = 0
+
+    def _collect_parquet_files(self, data_path):
+        def collect_one(path_like):
+            path = Path(path_like).expanduser()
+            if path.is_file():
+                return [path]
+            if path.is_dir():
+                return sorted(path.rglob("*.parquet"))
+            return sorted(Path(p).expanduser() for p in glob.glob(str(path), recursive=True))
+
+        if isinstance(data_path, (list, tuple)):
+            files = []
+            for item in data_path:
+                files.extend(collect_one(item))
+            return files
+        return collect_one(data_path)
+
+    def _load_total_trajectories(self):
+        metadata_paths = sorted(
+            {
+                path.parent / "metadata.json"
+                for path in self.data_files
+                if (path.parent / "metadata.json").exists()
+            }
+        )
+        if metadata_paths:
+            total = 0
+            for metadata_path in metadata_paths:
+                with open(metadata_path, "r", encoding="utf-8") as f:
+                    metadata = json.load(f)
+                total += int(metadata.get("total_trajectories", 0))
+            return total
+
+        try:
+            import pyarrow.parquet as pq
+        except ImportError:
+            return None
+
+        total = 0
+        for path in self.data_files:
+            total += pq.ParquetFile(str(path)).metadata.num_rows
+        return total
+
+    def __len__(self):
+        if self.total_trajectories is None:
+            raise TypeError("TrajectoryIterableDataset length is unknown.")
+        return self.total_trajectories
+
+    def __iter__(self):
+        epoch = self._epoch
+        self._epoch += 1
+        rng = np.random.default_rng(self.seed + epoch)
+
+        files = list(self.data_files)
+        if self.mode == "train":
+            rng.shuffle(files)
+
+        files = self._split_files(files)
+        records = self._iter_parquet_records(files)
+        if self.mode == "train" and self.shuffle_buffer_size > 1:
+            records = self._shuffle_records(records, rng)
+
+        for sample_idx, record in enumerate(records):
+            sample_rng = rng
+            if self.mode != "train":
+                sample_rng = np.random.default_rng(self.seed + sample_idx)
+            item = self._build_item_from_record(record, sample_rng)
+            if item is not None:
+                yield item
+
+    def _split_files(self, files):
+        world_size = int(os.environ.get("WORLD_SIZE", "1"))
+        rank = int(os.environ.get("RANK", "0"))
+        if world_size > 1:
+            files = files[rank::world_size]
+
+        worker_info = get_worker_info()
+        if worker_info is not None:
+            files = files[worker_info.id::worker_info.num_workers]
+        return files
+
+    def _iter_parquet_records(self, files):
+        if not files:
+            return
+
+        try:
+            import pyarrow.dataset as ds
+        except ImportError as exc:
+            raise ImportError(
+                "TrajectoryIterableDataset requires pyarrow. "
+                "Install it with `pip install pyarrow`."
+            ) from exc
+
+        dataset = ds.dataset([str(path) for path in files], format="parquet")
+        for batch in dataset.to_batches(
+            columns=["time", "latitude", "longitude"],
+            batch_size=self.record_batch_size,
+        ):
+            for record in batch.to_pylist():
+                yield record
+
+    def _shuffle_records(self, records, rng):
+        buffer = []
+        for record in records:
+            buffer.append(record)
+            if len(buffer) >= self.shuffle_buffer_size:
+                idx = int(rng.integers(0, len(buffer)))
+                yield buffer.pop(idx)
+
+        rng.shuffle(buffer)
+        for record in buffer:
+            yield record
+
+    def _build_item_from_record(self, record, rng):
+        time = np.asarray(record["time"], dtype=np.int64)
+        latitude = np.asarray(record["latitude"], dtype=np.float32)
+        longitude = np.asarray(record["longitude"], dtype=np.float32)
+        if len(time) == 0 or len(time) != len(latitude) or len(latitude) != len(longitude):
+            return None
+
+        valid = np.isfinite(latitude) & np.isfinite(longitude)
+        if not valid.all():
+            time = time[valid]
+            latitude = latitude[valid]
+            longitude = longitude[valid]
+        if len(time) == 0:
+            return None
+
+        time, longitude, latitude = self._resample_arrays(time, longitude, latitude, rng)
+        if len(time) == 0:
+            return None
+
+        trajectory_np = np.stack([longitude, latitude], axis=1).astype(np.float32)
+        intervals_np = np.diff(time, prepend=time[0]).astype(np.float32)
+        seq_len = min(len(trajectory_np), self.max_len)
+        if seq_len == 0:
+            return None
+
+        short_mask = self._make_mask(trajectory_np[:seq_len], seq_len, rng)
+        mask = np.zeros(self.max_len, dtype=bool)
+        mask[:seq_len] = short_mask[:seq_len]
+        current_masked_points = int(mask.sum())
+        if current_masked_points < self.num_masked_points:
+            additional_mask_needed = self.num_masked_points - current_masked_points
+            available_indices = np.where(~mask)[0]
+            additional_indices = self._choice(available_indices, additional_mask_needed, rng)
+            mask[additional_indices] = True
+
+        trajectory = torch.as_tensor(trajectory_np[:seq_len], dtype=torch.float32)
+        original = trajectory[0].clone()
+        trajectory = trajectory - original
+        if self.transform:
+            trajectory = self.transform(trajectory)
+
+        padded_trajectory = torch.zeros((self.max_len, 2), dtype=torch.float32)
+        padded_trajectory[:seq_len] = trajectory
+        attention_mask = torch.zeros(self.max_len, dtype=torch.float32)
+        attention_mask[:seq_len] = 1
+
+        intervals = torch.zeros(self.max_len, dtype=torch.float32)
+        intervals[:seq_len] = torch.as_tensor(intervals_np[:seq_len], dtype=torch.float32)
+
+        return {
+            "trajectory": padded_trajectory.transpose(0, 1),
+            "attention_mask": attention_mask,
+            "original": original,
+            "intervals": intervals,
+            "indices": torch.as_tensor(np.where(mask)[0], dtype=torch.long),
+        }
+
+    def _resample_arrays(self, time, longitude, latitude, rng):
+        trajectory_length = len(time)
+        if rng.random() < 0.3 and trajectory_length >= 360:
+            if trajectory_length > 540:
+                sampling_interval = int(rng.integers(8, 16))
+            elif trajectory_length > 360:
+                sampling_interval = int(rng.integers(6, 11))
+            else:
+                sampling_interval = int(rng.integers(3, 7))
+
+            resampled = self._interval_resample(time, longitude, latitude, sampling_interval)
+            if len(resampled[0]) > 0:
+                return resampled
+
+        sampling_ratio = (
+            1.0
+            if trajectory_length <= MIN_POINTS
+            else (
+                MIN_SAMPLING_RATIO
+                if trajectory_length >= MAX_POINTS
+                else self.sampling_ratios[trajectory_length - MIN_POINTS]
+            )
+        )
+        num_sampled_points = max(1, int(trajectory_length * sampling_ratio))
+        indices = rng.choice(trajectory_length, size=num_sampled_points, replace=False)
+        indices.sort()
+        return time[indices], longitude[indices], latitude[indices]
+
+    def _interval_resample(self, time, longitude, latitude, sampling_interval):
+        bins = time // sampling_interval
+        unique_bins, inverse = np.unique(bins, return_inverse=True)
+        counts = np.bincount(inverse).astype(np.float32)
+        longitude_sum = np.bincount(inverse, weights=longitude)
+        latitude_sum = np.bincount(inverse, weights=latitude)
+        resampled_time = (unique_bins * sampling_interval).astype(np.int64)
+        resampled_longitude = (longitude_sum / counts).astype(np.float32)
+        resampled_latitude = (latitude_sum / counts).astype(np.float32)
+        return resampled_time, resampled_longitude, resampled_latitude
+
+    def _make_mask(self, trajectory, trajectory_length, rng):
+        mask_strategy = rng.random()
+        if mask_strategy < 0.7:
+            return self._random_mask(trajectory_length, rng)
+        if mask_strategy < 0.85:
+            return self._rdp_mask(trajectory, trajectory_length, rng)
+        if mask_strategy < 0.9:
+            return self._block_mask(trajectory_length, rng)
+        return self._last_n_mask(trajectory_length, rng)
+
+    def _random_mask(self, trajectory_length, rng):
+        num_points = int(trajectory_length * self.mask_ratio)
+        mask = np.full(trajectory_length, False, dtype=bool)
+        mask[self._choice(np.arange(trajectory_length), num_points, rng)] = True
+        return mask
+
+    def _last_n_mask(self, trajectory_length, rng):
+        num_points = int(trajectory_length * self.mask_ratio)
+        n = trajectory_length if trajectory_length < 3 else int(rng.integers(3, min(8, trajectory_length) + 1))
+        mask = np.full(trajectory_length, False, dtype=bool)
+        mask[-n:] = True
+        additional_mask_points = max(0, num_points - n)
+        candidates = np.arange(max(0, trajectory_length - n))
+        mask[self._choice(candidates, additional_mask_points, rng)] = True
+        return mask
+
+    def _block_mask(self, trajectory_length, rng):
+        num_points = int(trajectory_length * self.mask_ratio)
+        block_size = trajectory_length if trajectory_length < 5 else int(rng.integers(5, min(15, trajectory_length) + 1))
+        mask = np.full(trajectory_length, False, dtype=bool)
+        start_idx = int(rng.integers(0, trajectory_length - block_size + 1))
+        mask[start_idx : start_idx + block_size] = True
+        additional_mask_points = max(0, num_points - block_size)
+        candidates = np.where(~mask)[0]
+        mask[self._choice(candidates, additional_mask_points, rng)] = True
+        return mask
+
+    def _rdp_mask(self, trajectory, trajectory_length, rng, epsilon=1e-4):
+        num_points = int(trajectory_length * self.mask_ratio)
+        mask = np.full(trajectory_length, False, dtype=bool)
+        if trajectory_length <= 2 or num_points <= 0:
+            return mask
+
+        rdp_mask = np.asarray(rdp(trajectory, epsilon=epsilon, return_mask=True), dtype=bool)
+        rdp_mask = rdp_mask[:trajectory_length]
+        rdp_mask[0], rdp_mask[-1] = False, False
+        num_rdp_mask = int(rdp_mask.sum())
+
+        if num_rdp_mask > num_points:
+            indices = np.where(rdp_mask)[0]
+            masked_indices = self._choice(indices, num_points, rng)
+            rdp_mask[:] = False
+            rdp_mask[masked_indices] = True
+        elif num_rdp_mask < num_points:
+            candidates = np.where(~rdp_mask)[0]
+            additional_indices = self._choice(candidates, num_points - num_rdp_mask, rng)
+            rdp_mask[additional_indices] = True
+
+        return rdp_mask
+
+    def _choice(self, candidates, size, rng):
+        candidates = np.asarray(candidates)
+        size = min(max(int(size), 0), len(candidates))
+        if size == 0:
+            return np.asarray([], dtype=np.int64)
+        return rng.choice(candidates, size=size, replace=False)
 
 
 class ShardBatchSampler(Sampler):

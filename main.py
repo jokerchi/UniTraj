@@ -70,6 +70,19 @@ def masked_meter_mae_rmse(predicted_traj, traj, original, normalize_transform, m
         return mae, rmse
 
 
+def positive_int_or_none(value):
+    if value is None:
+        return None
+    value = int(value)
+    return value if value > 0 else None
+
+
+def model_state_dict(model):
+    if isinstance(model, torch.nn.DataParallel):
+        return model.module.state_dict()
+    return model.state_dict()
+
+
 def main(config, logger):
 
     # Create the model
@@ -101,55 +114,107 @@ def main(config, logger):
     val_file_path = config.data.val_file_path
     sampler_seed = getattr(config.data, "sampler_seed", 2024)
     normalize_transform = Normalize()
-    train_set = TrajectoryDataset(
-        data_path=train_file_path,
-        max_len=config.data.traj_length,
-        transform=normalize_transform,
-        mode="train",
-        seed=sampler_seed,
-    )
-    val_set = TrajectoryDataset(
-        data_path=val_file_path,
-        max_len=config.data.traj_length,
-        transform=normalize_transform,
-        mode="val",
-        seed=sampler_seed,
-    )
-    logger.info(f"Train shards: {len(train_set.data_files)}, trajectories: {len(train_set)}")
-    logger.info(f"Validation shards: {len(val_set.data_files)}, trajectories: {len(val_set)}")
-
+    data_format = getattr(config.data, "format", "pickle").lower()
     num_workers = max(0, int(config.data.num_workers))
     pin_memory = torch.cuda.is_available()
-    train_sampler = ShardBatchSampler(
-        train_set,
-        batch_size=config.training.batch_size,
-        shuffle=True,
-        drop_last=False,
-        seed=sampler_seed,
-    )
-    val_sampler = ShardBatchSampler(
-        val_set,
-        batch_size=config.training.batch_size,
-        shuffle=False,
-        drop_last=False,
-        seed=sampler_seed,
-    )
-    dataloader = DataLoader(
-        train_set,
-        batch_sampler=train_sampler,
-        num_workers=num_workers,
-        pin_memory=pin_memory,
-    )
-    dataloader_val = DataLoader(
-        val_set,
-        batch_sampler=val_sampler,
-        num_workers=num_workers,
-        pin_memory=pin_memory,
-    )
+    steps_per_epoch = None
+    val_steps_per_epoch = None
+
+    if data_format == "parquet":
+        train_set = TrajectoryIterableDataset(
+            data_path=train_file_path,
+            max_len=config.data.traj_length,
+            transform=normalize_transform,
+            mode="train",
+            seed=sampler_seed,
+            shuffle_buffer_size=getattr(config.data, "shuffle_buffer_size", 4096),
+            record_batch_size=getattr(config.data, "record_batch_size", 1024),
+        )
+        val_set = TrajectoryIterableDataset(
+            data_path=val_file_path,
+            max_len=config.data.traj_length,
+            transform=normalize_transform,
+            mode="val",
+            seed=sampler_seed,
+            shuffle_buffer_size=0,
+            record_batch_size=getattr(config.data, "record_batch_size", 1024),
+        )
+        steps_per_epoch = positive_int_or_none(getattr(config.data, "steps_per_epoch", None))
+        val_steps_per_epoch = positive_int_or_none(getattr(config.data, "val_steps_per_epoch", None))
+        logger.info(
+            f"Train parquet shards: {len(train_set.data_files)}, "
+            f"trajectories: {getattr(train_set, 'total_trajectories', 'unknown')}"
+        )
+        logger.info(
+            f"Validation parquet shards: {len(val_set.data_files)}, "
+            f"trajectories: {getattr(val_set, 'total_trajectories', 'unknown')}"
+        )
+
+        loader_kwargs = {
+            "batch_size": config.training.batch_size,
+            "num_workers": num_workers,
+            "pin_memory": pin_memory,
+        }
+        if num_workers > 0:
+            loader_kwargs["persistent_workers"] = True
+            loader_kwargs["prefetch_factor"] = int(getattr(config.data, "prefetch_factor", 4))
+
+        dataloader = DataLoader(train_set, **loader_kwargs)
+        dataloader_val = DataLoader(val_set, **loader_kwargs)
+    elif data_format == "pickle":
+        train_set = TrajectoryDataset(
+            data_path=train_file_path,
+            max_len=config.data.traj_length,
+            transform=normalize_transform,
+            mode="train",
+            seed=sampler_seed,
+        )
+        val_set = TrajectoryDataset(
+            data_path=val_file_path,
+            max_len=config.data.traj_length,
+            transform=normalize_transform,
+            mode="val",
+            seed=sampler_seed,
+        )
+        logger.info(f"Train shards: {len(train_set.data_files)}, trajectories: {len(train_set)}")
+        logger.info(f"Validation shards: {len(val_set.data_files)}, trajectories: {len(val_set)}")
+
+        train_sampler = ShardBatchSampler(
+            train_set,
+            batch_size=config.training.batch_size,
+            shuffle=True,
+            drop_last=False,
+            seed=sampler_seed,
+        )
+        val_sampler = ShardBatchSampler(
+            val_set,
+            batch_size=config.training.batch_size,
+            shuffle=False,
+            drop_last=False,
+            seed=sampler_seed,
+        )
+        dataloader = DataLoader(
+            train_set,
+            batch_sampler=train_sampler,
+            num_workers=num_workers,
+            pin_memory=pin_memory,
+        )
+        dataloader_val = DataLoader(
+            val_set,
+            batch_sampler=val_sampler,
+            num_workers=num_workers,
+            pin_memory=pin_memory,
+        )
+    else:
+        raise ValueError(f"Unsupported data format: {data_format}")
 
     # optimizer
     optim = torch.optim.Adam(model.parameters(), lr=1e-3)  # Optimizer
     scheduler = ReduceLROnPlateau(optim, mode='min', factor=0.5, patience=2)
+    use_amp = bool(getattr(config.training, "use_amp", False)) and device.type == "cuda"
+    grad_accum_steps = max(1, int(getattr(config.training, "grad_accum_steps", 1)))
+    scaler = torch.cuda.amp.GradScaler(enabled=use_amp)
+    logger.info(f"AMP enabled: {use_amp}, grad_accum_steps: {grad_accum_steps}")
 
     best_val_loss = float("inf")
     patience = config.training.patience
@@ -160,7 +225,11 @@ def main(config, logger):
         train_maes = []
         train_rmses = []
         logger.info("<----- Epoch {} Training ---->".format(epoch))
+        optim.zero_grad(set_to_none=True)
+        train_batches = 0
         for batch_idx, batch in enumerate(dataloader):
+            if steps_per_epoch is not None and batch_idx >= steps_per_epoch:
+                break
             traj, atten_mask = batch["trajectory"], batch["attention_mask"]
             interval, indices = batch["intervals"], batch["indices"]
             if epoch == 0 and batch_idx == 0:
@@ -171,24 +240,34 @@ def main(config, logger):
                     f"intervals={tuple(interval.shape)}, "
                     f"indices={tuple(indices.shape)}"
                 )
-            interval = interval.to(device)
-            traj = traj.to(device)
-            atten_mask = atten_mask.to(device)
+            interval = interval.to(device, non_blocking=pin_memory)
+            traj = traj.to(device, non_blocking=pin_memory)
+            atten_mask = atten_mask.to(device, non_blocking=pin_memory)
             atten_mask = atten_mask.unsqueeze(1).expand_as(traj)
 
-
-            predicted_traj, mask = model(traj, interval, indices)
-            loss = torch.mean((predicted_traj - traj) ** 2 * mask * atten_mask) / 0.5
+            with torch.cuda.amp.autocast(enabled=use_amp):
+                predicted_traj, mask = model(traj, interval, indices)
+                loss = torch.mean((predicted_traj - traj) ** 2 * mask * atten_mask) / 0.5
             mae, rmse = masked_mae_rmse(predicted_traj, traj, mask, atten_mask)
-            
-            optim.zero_grad()
-            loss.backward()
-            optim.step()
-            
+
+            train_batches += 1
+            scaler.scale(loss / grad_accum_steps).backward()
+            if train_batches % grad_accum_steps == 0:
+                scaler.step(optim)
+                scaler.update()
+                optim.zero_grad(set_to_none=True)
+
             train_losses.append(loss.item())
             train_maes.append(mae.item())
             train_rmses.append(rmse.item())
-            
+
+        if train_batches == 0:
+            raise RuntimeError("No training batches were produced. Check dataset paths and steps_per_epoch.")
+        if train_batches % grad_accum_steps != 0:
+            scaler.step(optim)
+            scaler.update()
+            optim.zero_grad(set_to_none=True)
+
         avg_train_loss = np.mean(train_losses)
         avg_train_mae = np.mean(train_maes)
         avg_train_rmse = np.mean(train_rmses)
@@ -205,6 +284,8 @@ def main(config, logger):
         val_meter_rmses = []
         with torch.no_grad():
             for batch_idx, batch in enumerate(dataloader_val):
+                if val_steps_per_epoch is not None and batch_idx >= val_steps_per_epoch:
+                    break
                 traj, atten_mask = batch["trajectory"], batch["attention_mask"]
                 interval = batch["intervals"]
                 indices = batch["indices"]
@@ -217,14 +298,15 @@ def main(config, logger):
                         f"intervals={tuple(interval.shape)}, "
                         f"indices={tuple(indices.shape)}"
                     )
-                interval = interval.to(device)
-                traj = traj.to(device)
-                atten_mask = atten_mask.to(device)
-                original = original.to(device)
+                interval = interval.to(device, non_blocking=pin_memory)
+                traj = traj.to(device, non_blocking=pin_memory)
+                atten_mask = atten_mask.to(device, non_blocking=pin_memory)
+                original = original.to(device, non_blocking=pin_memory)
                 atten_mask = atten_mask.unsqueeze(1).expand_as(traj)
-                
-                predicted_traj, mask = model(traj, interval, indices)
-                val_loss = torch.mean((predicted_traj - traj) ** 2 * mask * atten_mask) / 0.5
+
+                with torch.cuda.amp.autocast(enabled=use_amp):
+                    predicted_traj, mask = model(traj, interval, indices)
+                    val_loss = torch.mean((predicted_traj - traj) ** 2 * mask * atten_mask) / 0.5
                 val_mae, val_rmse = masked_mae_rmse(predicted_traj, traj, mask, atten_mask)
                 meter_mae, meter_rmse = masked_meter_mae_rmse(
                     predicted_traj, traj, original, normalize_transform, mask, atten_mask
@@ -234,7 +316,10 @@ def main(config, logger):
                 val_rmses.append(val_rmse.item())
                 val_meter_maes.append(meter_mae.item())
                 val_meter_rmses.append(meter_rmse.item())
-        
+
+        if not val_losses:
+            raise RuntimeError("No validation batches were produced. Check dataset paths and val_steps_per_epoch.")
+
         avg_val_loss = np.mean(val_losses)
         avg_val_mae = np.mean(val_maes)
         avg_val_rmse = np.mean(val_rmses)
@@ -254,10 +339,7 @@ def main(config, logger):
             trigger_times = 0
             # save best model
             m_path = model_save / f"best_model_epoch_{epoch}.pt"
-            if torch.cuda.device_count() > 1:
-                torch.save(model.module.state_dict(), m_path)
-            else:
-                torch.save(model.state_dict(), m_path)
+            torch.save(model_state_dict(model), m_path)
             logger.info(f"Validation loss decreased,\nsaving model to {m_path}")
             
         else:
@@ -265,10 +347,7 @@ def main(config, logger):
             logger.info(f"Validation loss did not decrease for {trigger_times} epochs")
             if trigger_times >= patience:
                 m_path = model_save / f"Final_Model_{epoch}.pt"
-                if torch.cuda.device_count() > 1:
-                    torch.save(model.module.state_dict(), m_path)
-                else:
-                    torch.save(model.state_dict(), m_path)
+                torch.save(model_state_dict(model), m_path)
                 logger.info("Early stopping triggered")
                 break
 

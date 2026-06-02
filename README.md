@@ -63,27 +63,46 @@ We also provide a sample of the WorldTrace dataset in the *data/directory* to he
 
 - load_see_data.ipynb: A Jupyter Notebook that demonstrates how to load the sample data and visualize the trajectories.
 
-### Converting matched CSV trajectories
-If your data is stored as one CSV per trajectory with columns `time, matched_latitude, matched_longitude`, convert it to the UniTraj pickle format:
+### Converting trajectory data
+If your data is stored as one CSV per trajectory with columns `time, matched_latitude, matched_longitude`, convert it to the original UniTraj pickle format:
 
 ```bash
 python convert_matched_csv_to_pickle.py --input /path/to/csv_dir --output data/custom.pkl
 ```
 
-For large datasets, shard the output to reduce memory pressure:
+For large pickle datasets, convert existing `.pkl` shards to streaming-friendly Parquet shards:
 
 ```bash
-python convert_matched_csv_to_pickle.py --input /path/to/csv_dir --output data/shards --shard-size 10000
+python convert_matched_csv_to_pickle.py \
+  --input data/shards/train \
+  --input-format pickle \
+  --output data/parquet/train \
+  --output-format parquet \
+  --shard-size 5000
 ```
 
-To train with explicit train/validation shard splits, place shard files into separate directories and set both paths in `main.py`:
+Repeat for validation data:
+
+```bash
+python convert_matched_csv_to_pickle.py \
+  --input data/shards/val \
+  --input-format pickle \
+  --output data/parquet/val \
+  --output-format parquet \
+  --shard-size 5000
+```
+
+Parquet shards are written as `trajectories_000001.parquet`, `trajectories_000002.parquet`, and so on, plus a `metadata.json` file. The default training configuration reads these directories with `TrajectoryIterableDataset`.
+
+To keep using pickle data, set the data format and paths in `utils/config.py`:
 
 ```python
-train_file_path = './data/trajectory_shards/train'
-val_file_path = './data/trajectory_shards/val'
+'format': 'pickle',
+'train_file_path': './data/shards/train',
+'val_file_path': './data/shards/val',
 ```
 
-Both paths support a single `.pkl`, a shard directory, or a glob pattern.
+Both pickle and Parquet paths support a single file, a shard directory, or a glob pattern.
 
 ## 📝 Citation
 If you find our work useful in your research, please consider citing our paper:
