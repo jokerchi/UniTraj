@@ -3,7 +3,7 @@ args = {
         'dataset': 'worldtrace',
         'traj_length': 200,
         'emb_dim': 128,
-        'num_workers': 16,
+        'num_workers': 8,
         'sampler_seed': 2024,
         # 'train_file_path': './data/worldtrace_sample.pkl',
         # 'val_file_path': './data/worldtrace_sample.pkl',
@@ -14,5 +14,6 @@ args = {
     'training': {
         'batch_size': 512,
         'n_epochs': 1000,
+        'patience': 5,
     },
 }

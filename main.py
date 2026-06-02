@@ -152,7 +152,7 @@ def main(config, logger):
     scheduler = ReduceLROnPlateau(optim, mode='min', factor=0.5, patience=2)
 
     best_val_loss = float("inf")
-    patience = 20
+    patience = config.training.patience
     trigger_times = 0
     for epoch in range(0, config.training.n_epochs + 1):
         model.train()
