@@ -18,8 +18,8 @@ args = {
         'val_file_path': './data/parquet/val',
     },
     'training': {
-        'batch_size': 128,
-        'grad_accum_steps': 4,
+        'batch_size': 256,
+        'grad_accum_steps': 2,
         'use_amp': True,
         'n_epochs': 1000,
         'patience': 5,

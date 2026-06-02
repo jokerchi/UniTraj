@@ -4,6 +4,7 @@ import numpy as np
 import math
 import datetime
 import os
+import time
 import torch.nn.functional as F
 from torch.utils.data import TensorDataset, DataLoader
 from torch.optim.lr_scheduler import ReduceLROnPlateau
@@ -81,6 +82,20 @@ def model_state_dict(model):
     if isinstance(model, torch.nn.DataParallel):
         return model.module.state_dict()
     return model.state_dict()
+
+
+def synchronize_if_cuda(device):
+    if device.type == "cuda":
+        for device_idx in range(torch.cuda.device_count()):
+            torch.cuda.synchronize(device_idx)
+
+
+def format_duration(seconds):
+    minutes, seconds = divmod(float(seconds), 60)
+    hours, minutes = divmod(int(minutes), 60)
+    if hours:
+        return f"{hours}h {minutes:02d}m {seconds:05.2f}s"
+    return f"{minutes}m {seconds:05.2f}s"
 
 
 def main(config, logger):
@@ -220,6 +235,9 @@ def main(config, logger):
     patience = config.training.patience
     trigger_times = 0
     for epoch in range(0, config.training.n_epochs + 1):
+        synchronize_if_cuda(device)
+        epoch_start_time = time.perf_counter()
+        train_start_time = time.perf_counter()
         model.train()
         train_losses = []  # Store losses 
         train_maes = []
@@ -268,14 +286,19 @@ def main(config, logger):
             scaler.update()
             optim.zero_grad(set_to_none=True)
 
+        synchronize_if_cuda(device)
+        train_seconds = time.perf_counter() - train_start_time
+
         avg_train_loss = np.mean(train_losses)
         avg_train_mae = np.mean(train_maes)
         avg_train_rmse = np.mean(train_rmses)
         logger.info(
             f"Epoch {epoch} Training Loss: {avg_train_loss:.5f}, "
-            f"MAE: {avg_train_mae:.5f}, RMSE: {avg_train_rmse:.5f}"
+            f"MAE: {avg_train_mae:.5f}, RMSE: {avg_train_rmse:.5f}, "
+            f"Time: {format_duration(train_seconds)}"
         )
 
+        val_start_time = time.perf_counter()
         model.eval()
         val_losses = []
         val_maes = []
@@ -320,6 +343,9 @@ def main(config, logger):
         if not val_losses:
             raise RuntimeError("No validation batches were produced. Check dataset paths and val_steps_per_epoch.")
 
+        synchronize_if_cuda(device)
+        val_seconds = time.perf_counter() - val_start_time
+
         avg_val_loss = np.mean(val_losses)
         avg_val_mae = np.mean(val_maes)
         avg_val_rmse = np.mean(val_rmses)
@@ -328,7 +354,8 @@ def main(config, logger):
         logger.info(
             f"Epoch {epoch} Validation Loss: {avg_val_loss:.5f}, "
             f"MAE: {avg_val_mae:.5f}, RMSE: {avg_val_rmse:.5f}, "
-            f"Meter MAE: {avg_val_meter_mae:.2f}, Meter RMSE: {avg_val_meter_rmse:.2f}"
+            f"Meter MAE: {avg_val_meter_mae:.2f}, Meter RMSE: {avg_val_meter_rmse:.2f}, "
+            f"Time: {format_duration(val_seconds)}"
         )
         
         scheduler.step(avg_val_loss)
@@ -349,7 +376,22 @@ def main(config, logger):
                 m_path = model_save / f"Final_Model_{epoch}.pt"
                 torch.save(model_state_dict(model), m_path)
                 logger.info("Early stopping triggered")
+                epoch_seconds = time.perf_counter() - epoch_start_time
+                logger.info(
+                    f"Epoch {epoch} Time Summary: "
+                    f"train={format_duration(train_seconds)}, "
+                    f"val={format_duration(val_seconds)}, "
+                    f"total={format_duration(epoch_seconds)}"
+                )
                 break
+
+        epoch_seconds = time.perf_counter() - epoch_start_time
+        logger.info(
+            f"Epoch {epoch} Time Summary: "
+            f"train={format_duration(train_seconds)}, "
+            f"val={format_duration(val_seconds)}, "
+            f"total={format_duration(epoch_seconds)}"
+        )
 
     logger.info("<----Training Done---->")
 
