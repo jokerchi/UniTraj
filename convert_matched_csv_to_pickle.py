@@ -308,3 +308,12 @@ if __name__ == "__main__":
 #
 # Existing pickle shards to Parquet shards:
 # python convert_matched_csv_to_pickle.py --input data/shards/train --input-format pickle --output data/parquet/train --output-format parquet --shard-size 5000
+
+# python convert_matched_csv_to_pickle.py \
+#   --input /path/to/csv_dir \
+#   --output /path/to/parquet_dir \
+#   --output-format parquet \
+#   --shard-size 5000
+
+# csv文件转换成为parquet文件
+# python convert_matched_csv_to_pickle.py --input /home/stu252261/dataset/trajectory/data/yuanshao/OpenTrace/Trajectory --output ~/UniTraj/data/shards --output-format parquet --shard-size 50000
