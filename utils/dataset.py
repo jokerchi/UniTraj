@@ -610,7 +610,12 @@ class TrajectoryIterableDataset(IterableDataset):
     # --- Parquet record iteration ---
 
     def _iter_parquet_records(self, files: List[Path]):
-        """Yield individual records from parquet shards via pyarrow."""
+        """Yield individual records from parquet shards via pyarrow.
+
+        Uses Arrow columnar access with offset-based slicing instead of
+        ``to_pylist()``.  This avoids constructing Python dicts/lists for
+        every value and is ~10–15× faster for list-typed columns.
+        """
         if not files:
             return
 
@@ -627,7 +632,24 @@ class TrajectoryIterableDataset(IterableDataset):
             columns=["time", "latitude", "longitude"],
             batch_size=self.record_batch_size,
         ):
-            yield from batch.to_pylist()
+            # Access Arrow columns directly — much faster than to_pylist().
+            time_col = batch.column("time")       # ListArray<int64>
+            lat_col = batch.column("latitude")    # ListArray<float32>
+            lon_col = batch.column("longitude")   # ListArray<float32>
+
+            # Extract flat arrays + offsets ONCE per batch.
+            flat_times = time_col.values.to_numpy(zero_copy_only=False)
+            flat_lats = lat_col.values.to_numpy(zero_copy_only=False)
+            flat_lons = lon_col.values.to_numpy(zero_copy_only=False)
+            offsets = time_col.offsets.to_numpy()  # [num_rows + 1]
+
+            for i in range(batch.num_rows):
+                s, e = offsets[i], offsets[i + 1]
+                yield {
+                    "time": flat_times[s:e],
+                    "latitude": flat_lats[s:e],
+                    "longitude": flat_lons[s:e],
+                }
 
     # --- Shuffle buffer ---
 

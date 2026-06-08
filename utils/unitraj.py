@@ -13,14 +13,12 @@ References:
     Worldwide Traces (NeurIPS 2025)
 """
 
-import math
 import torch
 import torch.nn.functional as F
 from torch import nn
 from einops import rearrange, repeat
 from einops.layers.torch import Rearrange
 from timm.layers import trunc_normal_
-from timm.models.vision_transformer import Block
 
 # ============================================================================
 # Rotary Position Embedding (RoPE)
@@ -313,6 +311,147 @@ class PatchShuffle(nn.Module):
 
 
 # ============================================================================
+# Domain Prompt Network
+# ============================================================================
+
+class DomainPromptNetwork(nn.Module):
+    """Lightweight network that extracts spatial and temporal patterns from
+    trajectory data and produces learnable domain prompt tokens.
+
+    The prompt tokens are injected into the encoder (after CLS, before
+    unmasked tokens) to provide domain-specific context. During stage-2
+    fine-tuning, only this network is trained while the base model is frozen.
+
+    Spatial features: Conv1d over (trajectory, velocity, acceleration) →
+        captures local movement patterns (speed, direction changes, curvature).
+
+    Temporal features: Per-trajectory interval statistics (mean, std, min,
+        max, quartiles) → captures sampling frequency and stop patterns.
+
+    Args:
+        embedding_dim: Model dimension (must match encoder embedding_dim).
+        trajectory_length: Number of trajectory points (L).
+        num_prompts: Number of prompt tokens to generate (P).
+    """
+
+    def __init__(
+        self,
+        embedding_dim: int,
+        trajectory_length: int,
+        num_prompts: int = 8,
+    ):
+        super().__init__()
+        self.num_prompts = num_prompts
+        self.embedding_dim = embedding_dim
+        C = embedding_dim
+
+        # ---- Spatial encoder ----
+        # Input: [B, 6, L] = concat(trajectory[2], velocity[2], acceleration[2])
+        self.spatial_conv1 = nn.Conv1d(6, C // 2, kernel_size=3, padding=1)
+        self.spatial_norm1 = nn.LayerNorm(C // 2)
+        self.spatial_conv2 = nn.Conv1d(C // 2, C, kernel_size=5, padding=2)
+        self.spatial_norm2 = nn.LayerNorm(C)
+        self.spatial_pool = nn.AdaptiveAvgPool1d(1)
+
+        # ---- Temporal encoder ----
+        # Input: 6 per-trajectory statistics over valid intervals
+        temporal_hidden = max(16, C // 8)
+        self.temporal_net = nn.Sequential(
+            nn.Linear(6, temporal_hidden),
+            nn.GELU(),
+            nn.Linear(temporal_hidden, C),
+        )
+
+        # ---- Prompt generator ----
+        self.prompt_gen = nn.Sequential(
+            nn.Linear(C, C),
+            nn.GELU(),
+            nn.Linear(C, num_prompts * C),
+        )
+
+        self._init_weights()
+
+    def _init_weights(self):
+        for m in self.modules():
+            if isinstance(m, (nn.Linear, nn.Conv1d)):
+                trunc_normal_(m.weight, std=0.02)
+                if m.bias is not None:
+                    nn.init.zeros_(m.bias)
+
+    def forward(
+        self,
+        trajectory: torch.Tensor,
+        intervals: torch.Tensor,
+    ) -> torch.Tensor:
+        """Generate domain prompt tokens from trajectory and intervals.
+
+        Args:
+            trajectory: [B, 2, L] normalized (lon, lat) coordinates.
+            intervals: [B, L] raw time deltas in seconds.
+
+        Returns:
+            prompt_tokens: [P, B, C] where P=num_prompts, C=embedding_dim.
+        """
+        B, _, L = trajectory.shape
+
+        # --- Spatial features ---
+        # Compute velocity and acceleration (finite differences along L)
+        vel = trajectory.diff(dim=-1)                    # [B, 2, L-1]
+        vel = F.pad(vel, (1, 0), mode="replicate")       # [B, 2, L]
+        accel = vel.diff(dim=-1)                         # [B, 2, L-1]
+        accel = F.pad(accel, (1, 0), mode="replicate")   # [B, 2, L]
+        spatial_in = torch.cat([trajectory, vel, accel], dim=1)  # [B, 6, L]
+
+        h = self.spatial_conv1(spatial_in)               # [B, C//2, L]
+        h = rearrange(h, "b c l -> b l c")
+        h = self.spatial_norm1(h)
+        h = rearrange(h, "b l c -> b c l")
+        h = F.gelu(h)
+
+        h = self.spatial_conv2(h)                        # [B, C, L]
+        h = rearrange(h, "b c l -> b l c")
+        h = self.spatial_norm2(h)
+        h = rearrange(h, "b l c -> b c l")
+        h = F.gelu(h)
+
+        spatial_feat = self.spatial_pool(h).squeeze(-1)  # [B, C]
+
+        # --- Temporal features ---
+        # Compute statistics over valid intervals (non-zero, non-padding)
+        valid_mask = intervals > 0                        # [B, L]
+        seq_len = valid_mask.sum(dim=-1).float().clamp(min=1.0)  # [B]
+
+        mean = intervals.sum(dim=-1) / seq_len            # [B]
+        # Masked variance; use valid_mask to exclude padding
+        centered = intervals - mean.unsqueeze(-1)         # [B, L]
+        masked_centered = centered * valid_mask.float()
+        var = (masked_centered ** 2).sum(dim=-1) / seq_len
+        std = var.sqrt()
+
+        sorted_intervals = intervals.sort(dim=-1).values  # [B, L]
+        min_val = intervals.min(dim=-1).values            # [B]
+        max_val = intervals.max(dim=-1).values            # [B]
+        quartile_lo = max(0, int(L * 0.25))
+        quartile_hi = min(L - 1, int(L * 0.75))
+        p25 = sorted_intervals[:, quartile_lo]
+        p75 = sorted_intervals[:, quartile_hi]
+
+        stats = torch.stack(
+            [mean, std, min_val, max_val, p25, p75], dim=-1
+        )  # [B, 6]
+        temporal_feat = self.temporal_net(stats)           # [B, C]
+
+        # --- Fusion & prompt generation ---
+        fused = spatial_feat + temporal_feat               # [B, C]
+        logits = self.prompt_gen(fused)                    # [B, P * C]
+        prompt_tokens = rearrange(
+            logits, "b (p c) -> p b c", p=self.num_prompts
+        )  # [P, B, C]
+
+        return prompt_tokens
+
+
+# ============================================================================
 # Encoder
 # ============================================================================
 
@@ -377,6 +516,7 @@ class Encoder(nn.Module):
         trajectory: torch.Tensor,
         interval_embedding: torch.Tensor,
         mask_indices: torch.Tensor = None,
+        prompt_tokens: torch.Tensor = None,
     ):
         """Encode trajectories into latent features.
 
@@ -384,6 +524,9 @@ class Encoder(nn.Module):
             trajectory: [B, 2, L] raw trajectory (lon, lat after normalization).
             interval_embedding: [B, L, embedding_dim] time-interval embeddings.
             mask_indices: Optional [B, num_mask] pre-computed mask indices.
+            prompt_tokens: Optional [P, B, embedding_dim] domain prompt tokens
+                injected after the CLS token to provide domain-specific context.
+                Stripped from output so the decoder is unaffected.
 
         Returns:
             (features, backward_indices):
@@ -401,15 +544,27 @@ class Encoder(nn.Module):
         # Shuffle and mask
         tokens, forward_indices, backward_indices = self.shuffle(tokens, mask_indices)
 
-        # Prepend CLS token
-        tokens = torch.cat(
-            [self.cls_token.expand(-1, tokens.shape[1], -1), tokens], dim=0
-        )
+        # Prepend CLS token; optionally inject domain prompts after CLS
+        cls_tok = self.cls_token.expand(-1, tokens.shape[1], -1)  # [1, B, C]
+        if prompt_tokens is not None:
+            tokens = torch.cat([cls_tok, prompt_tokens, tokens], dim=0)
+        else:
+            tokens = torch.cat([cls_tok, tokens], dim=0)
         tokens = rearrange(tokens, "t b c -> b t c")
 
         # Transformer encoding
         features = self.transformer(tokens)
         features = self.layer_norm(features)
+
+        # Strip prompt tokens before returning (decoder must not see them)
+        if prompt_tokens is not None:
+            P = prompt_tokens.shape[0]
+            # Keep CLS at position 0, skip prompts at 1..P, keep tokens at P+1..
+            features = torch.cat([
+                features[:, :1],            # CLS
+                features[:, 1 + P:],        # unmasked tokens
+            ], dim=1)
+
         features = rearrange(features, "b t c -> t b c")
 
         return features, backward_indices
@@ -557,6 +712,9 @@ class UniTraj(nn.Module):
         decoder_layers: Number of Transformer layers in the decoder (default 4).
         decoder_heads: Number of attention heads in the decoder (default 2).
         mask_ratio: Fraction of tokens to mask during training (default 0.5).
+        num_domain_prompts: Number of domain prompt tokens (default 8).
+            The DomainPromptNetwork is always created, but only used when
+            ``use_prompts=True`` is passed to :meth:`forward`.
     """
 
     def __init__(
@@ -569,6 +727,7 @@ class UniTraj(nn.Module):
         decoder_layers: int = 4,
         decoder_heads: int = 2,
         mask_ratio: float = 0.5,
+        num_domain_prompts: int = 8,
     ):
         super().__init__()
 
@@ -581,12 +740,19 @@ class UniTraj(nn.Module):
             decoder_layers, decoder_heads,
         )
         self.interval_embedding = nn.Linear(1, embedding_dim)
+        self.num_domain_prompts = num_domain_prompts
+        self.domain_prompt_net = DomainPromptNetwork(
+            embedding_dim=embedding_dim,
+            trajectory_length=trajectory_length,
+            num_prompts=num_domain_prompts,
+        )
 
     def forward(
         self,
         trajectory: torch.Tensor,
         intervals: torch.Tensor = None,
         mask_indices: torch.Tensor = None,
+        use_prompts: bool = False,
     ):
         """Forward pass: encode trajectory, reconstruct masked regions.
 
@@ -594,6 +760,8 @@ class UniTraj(nn.Module):
             trajectory: [B, 2, L] normalized trajectory (lon, lat).
             intervals: [B, L] time intervals between consecutive points.
             mask_indices: Optional [B, num_mask] pre-computed mask indices.
+            use_prompts: If True, generate domain prompt tokens via
+                :class:`DomainPromptNetwork` and inject them into the encoder.
 
         Returns:
             (predicted_trajectory, mask):
@@ -602,8 +770,8 @@ class UniTraj(nn.Module):
         """
         # Embed time intervals via linear projection, or use zeros if no intervals
         if intervals is not None:
-            intervals = intervals.unsqueeze(-1)  # [B, L, 1]
-            interval_embeddings = self.interval_embedding(intervals)  # [B, L, embedding_dim]
+            intervals_sq = intervals.unsqueeze(-1)  # [B, L, 1]
+            interval_embeddings = self.interval_embedding(intervals_sq)  # [B, L, C]
         else:
             intervals_pooled = torch.zeros(
                 (trajectory.shape[0], self.encoder.num_tokens),
@@ -611,8 +779,27 @@ class UniTraj(nn.Module):
             )
             interval_embeddings = self.interval_embedding(intervals_pooled.unsqueeze(-1))
 
+        # Generate domain prompt tokens if requested.
+        # IMPORTANT: mask out the positions that the encoder will drop so the
+        # prompt network cannot leak information from unseen trajectory points.
+        prompt_tokens = None
+        if use_prompts and intervals is not None:
+            B_p, _, L_p = trajectory.shape
+            # Build visibility mask: 1 = visible (unmasked), 0 = masked
+            vis_mask = torch.ones(B_p, L_p, device=trajectory.device,
+                                  dtype=trajectory.dtype)
+            if mask_indices is not None:
+                # mask_indices: [B, N] — indices of points that WILL be masked.
+                # Zero them out so DomainPromptNetwork sees no information there.
+                vis_mask.scatter_(1, mask_indices, 0.0)
+
+            # Feed only visible points; masked positions are zeroed
+            masked_traj = trajectory * vis_mask.unsqueeze(1)   # [B, 2, L]
+            masked_intervals = intervals * vis_mask            # [B, L]
+            prompt_tokens = self.domain_prompt_net(masked_traj, masked_intervals)
+
         features, backward_indices = self.encoder(
-            trajectory, interval_embeddings, mask_indices
+            trajectory, interval_embeddings, mask_indices, prompt_tokens,
         )
         predicted_trajectory, mask = self.decoder(
             features, backward_indices, interval_embeddings

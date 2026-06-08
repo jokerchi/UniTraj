@@ -1,17 +1,8 @@
 """
-Training and Data Configuration (Default).
+Stage 1: MAE Pretraining Configuration.
 
-This is the default configuration used when no ``--config`` argument is given.
-For stage-specific settings, use the files under ``configs/``:
-
+Usage:
     python main.py --config configs/stage1_pretrain.py
-    python main.py --config configs/stage2_prompt.py
-
-Data paths support:
-- A single file path (e.g., './data/worldtrace_sample.pkl')
-- A directory of shard files (e.g., './data/parquet/train')
-- A glob pattern (e.g., './data/shards/*.pkl')
-- A list of paths
 """
 
 args = {
@@ -29,7 +20,7 @@ args = {
         "sampler_seed": 2024,
         # Shuffle buffer size for parquet streaming (0 = no shuffle)
         "shuffle_buffer_size": 4096,
-        # Number of records per parquet read batch (larger = fewer Arrow calls)
+        # Number of records per parquet read batch
         "record_batch_size": 32768,
         # DataLoader prefetch factor (only when num_workers > 0)
         "prefetch_factor": 3,
@@ -53,5 +44,7 @@ args = {
         "n_epochs": 1000,
         # Early stopping patience (epochs without improvement)
         "patience": 15,
+        # ===== Stage 1: MAE Pretraining =====
+        "stage": 1,
     },
 }

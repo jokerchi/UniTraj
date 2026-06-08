@@ -8,35 +8,41 @@ Supports:
 - Two data backends: streaming Parquet (IterableDataset) and in-memory Pickle.
 - Early stopping, learning rate scheduling, and model checkpointing.
 - torch.compile support for accelerated training.
+- Two-stage training with separate config files.
 
 Usage:
-    # Single-GPU
+    # Stage 1: MAE pretraining
+    python main.py --config configs/stage1_pretrain.py
+
+    # Stage 2: Domain prompt fine-tuning
+    python main.py --config configs/stage2_prompt.py
+
+    # Default (uses utils/config.py)
     python main.py
 
     # Multi-GPU (DDP)
-    torchrun --nproc_per_node=2 main.py
+    torchrun --nproc_per_node=2 main.py --config configs/stage1_pretrain.py
 """
 
+import argparse
 import datetime
+import importlib.util
 import logging
-import math
 import os
 import shutil
+import sys
 import time
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Dict, Optional, Tuple
+from typing import Optional, Tuple
 
-import numpy as np
 import torch
 import torch.distributed as dist
 import torch.nn as nn
-import torch.nn.functional as F
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torch.utils.data import DataLoader
 
-from utils.config import args
 from utils.dataset import (
     Normalize,
     ShardBatchSampler,
@@ -48,17 +54,30 @@ from utils.unitraj import UniTraj
 
 
 # ============================================================================
-# Early Environment Setup (must precede torch import)
+# Early Environment Setup
 # ============================================================================
 
-# Fix linker warnings on multiarch systems: ensure 64-bit libcuda.so is
-# discoverable before the 32-bit version at /lib/i386-linux-gnu/libcuda.so.
+# --- OMP_NUM_THREADS ---
+# Set before torch is imported so torchrun doesn't emit a warning about it.
+# Value of 1 prevents CPU oversubscription when multiple DDP processes share
+# the same node.
+os.environ.setdefault("OMP_NUM_THREADS", "1")
+
+# --- CUDA library search paths ---
+# On multiarch systems (common on Ubuntu/Debian), the 32-bit CUDA stub at
+#   /lib/i386-linux-gnu/libcuda.so
+# may be found before the 64-bit version.  The linker prints a harmless
+# "skipping incompatible" warning for each occurrence.  We prepend the 64-bit
+# stubs directory to LIBRARY_PATH so that ld finds the correct library first.
+# The stubs libcuda.so is intentionally empty — it exists only to satisfy the
+# linker's -lcuda flag at compile time; the real driver library
+# (libcuda.so.1) is used at runtime via the dynamic linker.
 _cuda_home = os.environ.get("CUDA_HOME", "/usr/local/cuda")
 if os.path.isdir(_cuda_home):
     _cuda_lib64 = os.path.join(_cuda_home, "lib64")
     _cuda_stubs = os.path.join(_cuda_lib64, "stubs")
     os.environ.setdefault("CUDA_HOME", _cuda_home)
-    # LIBRARY_PATH: passed by gcc to ld as -L flags (compile-time search)
+    # LIBRARY_PATH: passed by gcc to ld as -L flags (compile-time search).
     _existing_lib = os.environ.get("LIBRARY_PATH", "")
     _add_paths = []
     if os.path.isdir(_cuda_stubs):
@@ -71,6 +90,7 @@ if os.path.isdir(_cuda_home):
             f"{_prefix}:{_existing_lib}" if _existing_lib else _prefix
         )
 
+# Additional environment variables for stability and reproducibility.
 os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
 os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "2")
 os.environ.setdefault("CUDA_DEVICE_ORDER", "PCI_BUS_ID")
@@ -99,14 +119,6 @@ def is_main_process() -> bool:
     if not dist.is_available() or not dist.is_initialized():
         return True
     return dist.get_rank() == 0
-
-
-def all_reduce_mean(tensor: torch.Tensor) -> torch.Tensor:
-    """Average a tensor across all DDP ranks (in-place)."""
-    if dist.is_available() and dist.is_initialized():
-        dist.all_reduce(tensor, op=dist.ReduceOp.SUM)
-        tensor /= dist.get_world_size()
-    return tensor
 
 
 def reduce_tensor(tensor: torch.Tensor) -> torch.Tensor:
@@ -265,20 +277,13 @@ def model_state_dict(model: nn.Module) -> dict:
     return model.state_dict()
 
 
-def synchronize_if_cuda(device: torch.device) -> None:
-    """Synchronize all CUDA streams if the device is CUDA."""
-    if device.type == "cuda":
-        for device_idx in range(torch.cuda.device_count()):
-            torch.cuda.synchronize(device_idx)
-
-
-def format_duration(seconds: float) -> str:
+def format_duration(total_seconds: float) -> str:
     """Format a duration in seconds as a human-readable string."""
-    minutes, seconds = divmod(float(seconds), 60)
-    hours, minutes = divmod(int(minutes), 60)
-    if hours:
-        return f"{hours}h {minutes:02d}m {seconds:05.2f}s"
-    return f"{minutes}m {seconds:05.2f}s"
+    mins, secs = divmod(float(total_seconds), 60)
+    hrs, mins = divmod(int(mins), 60)
+    if hrs:
+        return f"{hrs}h {mins:02d}m {secs:05.2f}s"
+    return f"{mins}m {secs:05.2f}s"
 
 
 # ============================================================================
@@ -289,7 +294,8 @@ def create_model(config) -> UniTraj:
     """Build the UniTraj model from configuration.
 
     Args:
-        config: Configuration namespace with a ``data`` attribute.
+        config: Configuration namespace with ``data`` and ``training``
+            attributes.
 
     Returns:
         UniTraj instance.
@@ -303,6 +309,7 @@ def create_model(config) -> UniTraj:
         decoder_layers=4,
         decoder_heads=4,
         mask_ratio=0.5,
+        num_domain_prompts=int(getattr(config.training, "num_domain_prompts", 8)),
     )
 
 
@@ -518,6 +525,60 @@ def main(config, logger, local_rank=None, world_size=1):
     # ---- Build model ----
     model = create_model(config)
     use_ddp = dist.is_available() and dist.is_initialized()
+    stage = int(getattr(config.training, "stage", 1))
+
+    # ---- Stage 2: load pretrained checkpoint ----
+    if stage == 2:
+        checkpoint_path = getattr(config.training, "pretrained_checkpoint", "")
+        if checkpoint_path:
+            logger.info(f"Loading pretrained checkpoint: {checkpoint_path}")
+            state_dict = torch.load(checkpoint_path, map_location="cpu")
+
+            # Strip ``_orig_mod.`` prefix if the checkpoint was saved from a
+            # torch.compile-wrapped model (torch.compile wraps the module in an
+            # OptimizedModule whose state_dict keys are prefixed).
+            if any(k.startswith("_orig_mod.") for k in state_dict):
+                state_dict = {
+                    k.replace("_orig_mod.", "", 1): v
+                    for k, v in state_dict.items()
+                }
+                logger.info(
+                    "Stripped '_orig_mod.' prefix from checkpoint keys "
+                    "(checkpoint was saved with torch.compile)."
+                )
+
+            missing, unexpected = model.load_state_dict(state_dict, strict=False)
+            if missing:
+                logger.warning(
+                    f"Missing keys ({len(missing)}): "
+                    f"{[k for k in missing if 'domain_prompt_net' not in k]}"
+                )
+            if unexpected:
+                logger.warning(f"Unexpected keys: {unexpected}")
+            logger.info(
+                f"Checkpoint loaded: {len(state_dict)} keys; "
+                f"missing={len(missing)}, unexpected={len(unexpected)}"
+            )
+        else:
+            logger.warning(
+                "Stage 2 specified but no pretrained_checkpoint provided."
+            )
+
+    # ---- Stage 2: freeze base model parameters ----
+    freeze_base = bool(getattr(config.training, "freeze_base", False))
+    if stage == 2 and freeze_base:
+        frozen_count = 0
+        trainable_count = 0
+        for name, param in model.named_parameters():
+            if "domain_prompt_net" not in name:
+                param.requires_grad = False
+                frozen_count += param.numel()
+            else:
+                trainable_count += param.numel()
+        logger.info(
+            f"Frozen {frozen_count:,} base parameters, "
+            f"keeping {trainable_count:,} prompt parameters trainable"
+        )
 
     # ---- Configure device and parallelism ----
     if use_ddp:
@@ -528,12 +589,13 @@ def main(config, logger, local_rank=None, world_size=1):
         if hasattr(torch, "compile"):
             logger.info("Applying torch.compile to model (pre-DDP)...")
             try:
-                model = torch.compile(model, mode="reduce-overhead")
+                model = torch.compile(model, mode="default")
                 logger.info("torch.compile applied successfully.")
             except Exception as e:
                 logger.warning(f"torch.compile failed, skipping: {e}")
 
-        model = DDP(model, device_ids=[local_rank], output_device=local_rank)
+        model = DDP(model, device_ids=[local_rank], output_device=local_rank,
+                    find_unused_parameters=True)
         logger.info(f"DDP initialized: rank={local_rank}, world_size={world_size}")
     else:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -546,7 +608,7 @@ def main(config, logger, local_rank=None, world_size=1):
         if hasattr(torch, "compile"):
             logger.info("Applying torch.compile to model...")
             try:
-                model = torch.compile(model, mode="reduce-overhead")
+                model = torch.compile(model, mode="default")
                 logger.info("torch.compile applied successfully.")
             except Exception as e:
                 logger.warning(f"torch.compile failed, skipping: {e}")
@@ -569,18 +631,70 @@ def main(config, logger, local_rank=None, world_size=1):
     )
 
     # ---- Optimizer, scheduler, AMP ----
-    optim = torch.optim.Adam(model.parameters(), lr=1e-3)
+    if stage == 2:
+        # Only train prompt network parameters (others are frozen)
+        trainable_params = [p for p in model.parameters() if p.requires_grad]
+        prompt_lr = float(getattr(config.training, "prompt_lr", 1e-3))
+        optim = torch.optim.Adam(trainable_params, lr=prompt_lr)
+        if not trainable_params:
+            raise RuntimeError(
+                "Stage 2: no trainable parameters found. "
+                "Check freeze_base and num_domain_prompts."
+            )
+        logger.info(
+            f"Stage 2 optimizer: {len(trainable_params)} parameter groups, "
+            f"lr={prompt_lr}"
+        )
+    else:
+        optim = torch.optim.Adam(model.parameters(), lr=1e-3)
     scheduler = ReduceLROnPlateau(optim, mode="min", factor=0.5, patience=2)
     use_amp = bool(getattr(config.training, "use_amp", False)) and device.type == "cuda"
     grad_accum_steps = max(1, int(getattr(config.training, "grad_accum_steps", 1)))
-    scaler = torch.cuda.amp.GradScaler(enabled=use_amp)
+    scaler = torch.amp.GradScaler("cuda", enabled=use_amp)
     logger.info(f"AMP enabled: {use_amp}, grad_accum_steps: {grad_accum_steps}")
+
+    # ---- Warmup: trigger torch.compile tracing before the training loop ----
+    # torch.compile traces and compiles the model on the first forward pass.
+    # This can take 1-5 minutes depending on model size. A warmup pass gives
+    # clear progress feedback instead of an apparent hang during training.
+    logger.info("Warming up model (torch.compile tracing, may take 1-5 min)...")
+    warmup_start = time.perf_counter()
+    try:
+        # Grab a single batch for warmup (the DataLoader will be re-iterated
+        # from the beginning by the training loop).
+        warmup_batch = next(iter(dataloader))
+        traj_w, atten_w, interval_w, indices_w, _ = _move_batch_to_device(
+            warmup_batch, device, pin_memory
+        )
+        # Use a subset to speed up tracing while keeping the same tensor shapes.
+        B_warm = min(8, traj_w.shape[0])
+        with torch.no_grad():
+            _ = model(
+                traj_w[:B_warm], interval_w[:B_warm], indices_w[:B_warm],
+                use_prompts=(stage == 2),
+            )
+        del traj_w, atten_w, interval_w, indices_w, warmup_batch, _
+        # Synchronize to ensure all compilation work is done.
+        if device.type == "cuda":
+            torch.cuda.synchronize(device)
+        warmup_seconds = time.perf_counter() - warmup_start
+        logger.info(f"Model warmup complete ({warmup_seconds:.1f}s).")
+    except Exception as e:
+        logger.error(
+            f"Model warmup failed: {e}\n"
+            "If this is a torch.compile error, try adding "
+            "'--no-compile' flag or setting the environment variable "
+            "TORCH_COMPILE_DISABLE=1."
+        )
+        raise
 
     # ---- Training loop ----
     best_val_loss = float("inf")
     patience = config.training.patience
     trigger_times = 0
 
+    # epoch 0 through n_epochs (inclusive) gives n_epochs+1 total epochs.
+    # The extra epoch ensures we run at least one full pass when n_epochs=0.
     for epoch in range(config.training.n_epochs + 1):
         epoch_start = time.perf_counter()
 
@@ -612,7 +726,9 @@ def main(config, logger, local_rank=None, world_size=1):
                 )
 
             with torch.amp.autocast("cuda", enabled=use_amp):
-                predicted_traj, mask = model(traj, interval, indices)
+                predicted_traj, mask = model(
+                    traj, interval, indices, use_prompts=(stage == 2)
+                )
                 loss = (
                     torch.mean((predicted_traj - traj) ** 2 * mask * atten_mask) / 0.5
                 )
@@ -688,7 +804,9 @@ def main(config, logger, local_rank=None, world_size=1):
                     )
 
                 with torch.amp.autocast("cuda", enabled=use_amp):
-                    predicted_traj, mask = model(traj, interval, indices)
+                    predicted_traj, mask = model(
+                        traj, interval, indices, use_prompts=(stage == 2)
+                    )
                     val_loss = (
                         torch.mean((predicted_traj - traj) ** 2 * mask * atten_mask)
                         / 0.5
@@ -731,7 +849,7 @@ def main(config, logger, local_rank=None, world_size=1):
         avg_val_meter_mae = _aggregate_scalar(val_meter_mae_sum, val_count)
         avg_val_meter_rmse = _aggregate_scalar(val_meter_rmse_sum, val_count)
         logger.info(
-            f"Epoch {epoch} Validation Loss: {avg_val_loss:.5f}, "
+            f"Epoch {epoch} Validation Loss: {avg_val_loss:.9f}, "
             f"MAE: {avg_val_mae:.5f}, RMSE: {avg_val_rmse:.5f}, "
             f"Meter MAE: {avg_val_meter_mae:.2f}, Meter RMSE: {avg_val_meter_rmse:.2f}, "
             f"Time: {format_duration(val_seconds)}"
@@ -788,12 +906,13 @@ def setup_experiment_directories(
     config,
     exp_name: str = "UniTraj",
     timestamp: Optional[str] = None,
+    config_path: Optional[str] = None,
 ):
     """Create experiment directories and set up logging.
 
     Directory structure:
         {root}/{exp_name}/{dataset}_bs={batch_size}/{timestamp}/
-        ├── Files/    -- copies of source code
+        ├── Files/    -- copies of source code and config
         ├── Results/  -- placeholder for result files
         ├── models/   -- model checkpoints
         └── out.log   -- training log
@@ -802,6 +921,8 @@ def setup_experiment_directories(
         config: Configuration namespace.
         exp_name: Top-level experiment name (default: "UniTraj").
         timestamp: Optional timestamp string (format: "MM-DD-HH-MM-SS").
+        config_path: Optional path to the config file used for this run.
+            Copied into ``Files/`` for reproducibility.
 
     Returns:
         (logger, files_save, result_save, model_save)
@@ -824,11 +945,27 @@ def setup_experiment_directories(
 
     # Only rank 0 copies source files
     if is_main_process():
+        # Core source code from utils/
         utils_dir = root_dir / "utils"
         for filename in os.listdir(utils_dir):
             if filename.endswith(".py"):
                 shutil.copy(utils_dir / filename, files_save)
         shutil.copy(Path(__file__), files_save)
+
+        # Config files from configs/ directory (if it exists)
+        configs_dir = root_dir / "configs"
+        if configs_dir.is_dir():
+            configs_dest = files_save / "configs"
+            configs_dest.mkdir(exist_ok=True)
+            for filename in os.listdir(configs_dir):
+                if filename.endswith(".py"):
+                    shutil.copy(configs_dir / filename, configs_dest)
+
+        # The specific config file used for this run (for exact reproducibility)
+        if config_path is not None:
+            config_path = Path(config_path).expanduser().resolve()
+            if config_path.is_file():
+                shutil.copy(config_path, files_save / config_path.name)
 
     if is_main_process():
         print("All files saved path ---->>", exp_time_dir)
@@ -842,15 +979,99 @@ def setup_experiment_directories(
 
 
 # ============================================================================
+# Config Loading
+# ============================================================================
+
+def _args_to_namespace(args: dict) -> SimpleNamespace:
+    """Convert a nested config dict into a SimpleNamespace hierarchy.
+
+    Each top-level key becomes a SimpleNamespace attribute whose value is
+    another SimpleNamespace built from the corresponding sub-dict.
+
+    Args:
+        args: Nested configuration dictionary (e.g. ``{"data": {...}, "training": {...}}``).
+
+    Returns:
+        SimpleNamespace with attribute access (e.g. ``config.data.traj_length``).
+    """
+    temp = {}
+    for k, v in args.items():
+        temp[k] = SimpleNamespace(**v)
+    return SimpleNamespace(**temp)
+
+
+def _load_config_module(config_path: str):
+    """Load a Python config file and return its ``args`` dict.
+
+    Args:
+        config_path: Path to a Python file that defines an ``args`` dict.
+
+    Returns:
+        The ``args`` dictionary from the config file.
+
+    Raises:
+        FileNotFoundError: If the config file does not exist.
+        ValueError: If the config file does not define ``args``.
+    """
+    config_path = Path(config_path).expanduser().resolve()
+    if not config_path.exists():
+        raise FileNotFoundError(f"Config file not found: {config_path}")
+
+    spec = importlib.util.spec_from_file_location(
+        "training_config", str(config_path)
+    )
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["training_config"] = module
+    spec.loader.exec_module(module)
+
+    if not hasattr(module, "args"):
+        raise ValueError(
+            f"Config file {config_path} must define an 'args' dictionary."
+        )
+    return module.args
+
+
+# ============================================================================
 # Entry Point
 # ============================================================================
 
 if __name__ == "__main__":
-    # ---- Parse configuration ----
-    temp = {}
-    for k, v in args.items():
-        temp[k] = SimpleNamespace(**v)
-    config = SimpleNamespace(**temp)
+    # ---- Parse command-line arguments ----
+    parser = argparse.ArgumentParser(
+        description="UniTraj Training Script",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Examples:\n"
+            "  # Stage 1: MAE pretraining\n"
+            "  python main.py --config configs/stage1_pretrain.py\n\n"
+            "  # Stage 2: Domain prompt fine-tuning\n"
+            "  python main.py --config configs/stage2_prompt.py\n\n"
+            "  # Multi-GPU (DDP)\n"
+            "  torchrun --nproc_per_node=2 main.py --config configs/stage1_pretrain.py\n"
+        ),
+    )
+    parser.add_argument(
+        "--config",
+        type=str,
+        default=None,
+        help=(
+            "Path to a Python config file that defines an 'args' dictionary. "
+            "If not provided, defaults to 'utils/config.py'."
+        ),
+    )
+    cli_args, _ = parser.parse_known_args()
+
+    # ---- Load configuration ----
+    if cli_args.config is not None:
+        # User-specified config file
+        args = _load_config_module(cli_args.config)
+        if is_main_process():
+            print(f"Loaded config: {Path(cli_args.config).resolve()}")
+    else:
+        # Default: built-in config
+        from utils.config import args
+
+    config = _args_to_namespace(args)
 
     # ---- Detect DDP environment ----
     local_rank = int(os.environ.get("LOCAL_RANK", -1))
@@ -882,7 +1103,8 @@ if __name__ == "__main__":
 
     # ---- Setup experiment ----
     logger, files_save, result_save, model_save = setup_experiment_directories(
-        config, exp_name="UniTraj", timestamp=timestamp
+        config, exp_name="UniTraj", timestamp=timestamp,
+        config_path=cli_args.config,
     )
 
     if use_ddp:
